@@ -23,8 +23,8 @@ class RemoteControl:
     VOLUME_MUTE: str = 'MUTE'
     VOLUME_UP: str = 'VOLUME_UP'
     VOLUME_DOWN: str = 'VOLUME_DOWN'
-    DPAD_UP: str = ('DPAD_UP',)
-    DPAD_DOWN: str = ('DPAD_DOWN',)
+    DPAD_UP: str = 'DPAD_UP'
+    DPAD_DOWN: str = 'DPAD_DOWN'
     DPAD_LEFT: str = 'DPAD_LEFT'
     DPAD_RIGHT: str = 'DPAD_RIGHT'
     DPAD_CENTER: str = 'DPAD_CENTER'
@@ -129,11 +129,13 @@ class RemoteControl:
     def device_info(self) -> dict[str, str] | None:
         return self.remote.device_info
 
+    def disconnect(self):
+        self.remote.disconnect()
+
     async def _pair(self, callback: Callable) -> None:
         await self.remote.async_start_pairing()
         while True:
             pairing_code, done = callback()
-            print(pairing_code)
             try:
                 return await self.remote.async_finish_pairing(pairing_code)
             except InvalidAuth as exc:

@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import sys
+from pathlib import Path
 from typing import Callable
 
 from PyQt5.QtGui import QIcon
@@ -25,6 +26,9 @@ from remote_control import RemoteControl
 class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
+
+        Path('keys').mkdir(parents=True, exist_ok=True)
+
         self.remote_control = RemoteControl()
 
         self._main_window_configure()
@@ -126,11 +130,15 @@ class MainWindow(QWidget):
 
     def _exit_app(self) -> None:
         self.tray_icon.hide()
+        try:
+            self.remote_control.disconnect()
+        except Exception:
+            pass
         QApplication.instance().quit()
 
     def _create_tray(self) -> None:
         self.tray_icon = QSystemTrayIcon(self)
-        self.tray_icon.setIcon(QIcon('resources/icon.png'))
+        self.tray_icon.setIcon(QIcon('resources/icon32.ico'))
 
         tray_menu = QMenu()
 
@@ -213,13 +221,21 @@ class MainWindow(QWidget):
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(
+        format='%(asctime)s,%(msecs)d %(levelname)s %(name)s %(message)s',
+        datefmt='%H:%M:%S',
+        level=logging.INFO,
+        handlers=[
+            logging.FileHandler('app.log'),
+            logging.StreamHandler(sys.stdout),
+        ],
+    )
 
     app = QApplication(sys.argv)
     loop = QEventLoop(app)
     asyncio.set_event_loop(loop)
 
-    app.setWindowIcon(QIcon('resources/icon.png'))
+    app.setWindowIcon(QIcon('resources/icon32.ico'))
 
     window = MainWindow()
     window.show()
