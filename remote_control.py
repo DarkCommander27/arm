@@ -136,6 +136,10 @@ class RemoteControl:
         await self.remote.async_start_pairing()
         while True:
             pairing_code, done = callback()
+            if not done:
+                self.remote.disconnect()
+                raise RuntimeError('Interrupted by user')
+
             try:
                 return await self.remote.async_finish_pairing(pairing_code)
             except InvalidAuth as exc:
