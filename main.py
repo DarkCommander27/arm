@@ -22,6 +22,8 @@ from qasync import QEventLoop
 
 from remote_control import RemoteControl
 
+_LOGGER = logging.getLogger(__name__)
+
 
 class MainWindow(QWidget):
     def __init__(self):
@@ -37,7 +39,7 @@ class MainWindow(QWidget):
         top_layout = QHBoxLayout()
         top_layout.setContentsMargins(20, 0, 20, 0)
 
-        self.search_label = QLabel('Not connection')
+        self.search_label = QLabel('Not connected')
         top_layout.addWidget(self.search_label)
 
         search_button = QPushButton('⟲')
@@ -118,6 +120,20 @@ class MainWindow(QWidget):
             }
             QInputDialog {
                 background-color: #1E1E1E;
+            }
+            QDialog QPushButton {
+                font-size: 14px;
+                padding: 8px 16px;
+                border-radius: 10px;
+                color: white;
+            }
+            QDialog QLineEdit {
+                font-size: 18px;
+                padding: 6px;
+                border: 2px solid #4CAF50;
+                border-radius: 10px;
+                color: white;
+                background-color: #444;
             }
             MainWindow {
                 background-color: #1E1E1E;
@@ -205,15 +221,18 @@ class MainWindow(QWidget):
         addrs: list = await self.remote_control.find_android_tv()
         if len(addrs) > 0:
             self.search_label.setText(f'Pair to {addrs[0]}')
-            await self.remote_control.pair(
-                addrs[0],
-                lambda: QInputDialog.getText(
-                    self,
-                    'TV Remote Control',
-                    'Enter the code you see on your TV screen:',
-                ),
-            )
-            device_info = self.remote_control.device_info()
+
+            try:
+                await self.remote_control.pair(
+                    addrs[0],
+                    lambda: QInputDialog.getText(self, 'TV Remote Control', 'Enter the code:'),
+                )
+                device_info = self.remote_control.device_info()
+            except Exception as exc:
+                self.search_label.setText('Not connected')
+                _LOGGER.debug('Pair Error: %s', exc)
+                return
+
             if device_info:
                 self.search_label.setText(f"{device_info['manufacturer']} {device_info['model']}")
         else:
