@@ -1,4 +1,5 @@
 import asyncio
+import functools
 import logging
 import sys
 from pathlib import Path
@@ -25,12 +26,28 @@ from remote_control import RemoteControl
 _LOGGER = logging.getLogger(__name__)
 
 
+def connection_check(func):
+    @functools.wraps(func)
+    def wrapper(self):
+        try:
+            if self.is_connected:
+                return func(self)
+            self._on_search()
+        except Exception as exc:
+            _LOGGER.error('Error: %s', exc)
+            self.search_label.setText('Error')
+            return None
+
+    return wrapper
+
+
 class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
 
         Path('keys').mkdir(parents=True, exist_ok=True)
 
+        self.is_connected = False
         self.remote_control = RemoteControl()
 
         self._main_window_configure()
@@ -142,7 +159,11 @@ class MainWindow(QWidget):
 
     def _on_tray_icon_activated(self, reason: int) -> None:
         if reason == QSystemTrayIcon.DoubleClick:
-            self.show()
+            self._show()
+
+    def _show(self) -> None:
+        self.show()
+        self.activateWindow()
 
     def _exit_app(self) -> None:
         self.tray_icon.hide()
@@ -159,7 +180,7 @@ class MainWindow(QWidget):
         tray_menu = QMenu()
 
         open_action = QAction('Open', self)
-        open_action.triggered.connect(self.show)
+        open_action.triggered.connect(self._show)
         tray_menu.addAction(open_action)
 
         exit_action = QAction('Exit', self)
@@ -171,45 +192,59 @@ class MainWindow(QWidget):
 
         self.tray_icon.activated.connect(self._on_tray_icon_activated)
 
+    @connection_check
     def _on_power(self) -> None:
         self.remote_control.power()
 
+    @connection_check
     def _on_back(self) -> None:
         self.remote_control.back()
 
+    @connection_check
     def _on_menu(self) -> None:
         self.remote_control.menu()
 
+    @connection_check
     def _on_home(self) -> None:
         self.remote_control.home()
 
+    @connection_check
     def _on_channel_up(self) -> None:
         self.remote_control.channel_up()
 
+    @connection_check
     def _on_channel_down(self) -> None:
         self.remote_control.channel_down()
 
+    @connection_check
     def _on_volume_up(self) -> None:
         self.remote_control.volume_up()
 
+    @connection_check
     def _on_volume_down(self) -> None:
         self.remote_control.volume_down()
 
+    @connection_check
     def _on_mute(self) -> None:
         self.remote_control.volume_mute()
 
+    @connection_check
     def _on_dpad_up(self) -> None:
         self.remote_control.dpad_up()
 
+    @connection_check
     def _on_dpad_down(self) -> None:
         self.remote_control.dpad_down()
 
+    @connection_check
     def _on_dpad_left(self) -> None:
         self.remote_control.dpad_left()
 
+    @connection_check
     def _on_dpad_right(self) -> None:
         self.remote_control.dpad_right()
 
+    @connection_check
     def _on_dpad_center(self) -> None:
         self.remote_control.dpad_center()
 
@@ -218,6 +253,10 @@ class MainWindow(QWidget):
 
     async def _pair(self) -> None:
         self.search_label.setText('Search...')
+        if self.is_connected:
+            self.is_connected = False
+            self.remote_control.disconnect()
+
         addrs: list = await self.remote_control.find_android_tv()
         if len(addrs) > 0:
             self.search_label.setText(f'Pair to {addrs[0]}')
@@ -230,11 +269,12 @@ class MainWindow(QWidget):
                 device_info = self.remote_control.device_info()
             except Exception as exc:
                 self.search_label.setText('Not connected')
-                _LOGGER.debug('Pair Error: %s', exc)
+                _LOGGER.error('Pair Error: %s', exc)
                 return
 
             if device_info:
                 self.search_label.setText(f"{device_info['manufacturer']} {device_info['model']}")
+                self.is_connected = True
         else:
             self.search_label.setText('Android TV not found')
 
