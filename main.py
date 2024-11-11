@@ -158,8 +158,11 @@ class MainWindow(QWidget):
         """)
 
     def _on_tray_icon_activated(self, reason: int) -> None:
-        if reason == QSystemTrayIcon.DoubleClick:
-            self._show()
+        if reason == QSystemTrayIcon.Trigger:
+            if self.isVisible():
+                self.hide()
+            else:
+                self._show()
 
     def _show(self) -> None:
         self.show()
@@ -169,8 +172,8 @@ class MainWindow(QWidget):
         self.tray_icon.hide()
         try:
             self.remote_control.disconnect()
-        except Exception:
-            pass
+        except Exception as exc:
+            _LOGGER.error('Disconnect Error: %s', exc)
         QApplication.instance().quit()
 
     def _create_tray(self) -> None:
