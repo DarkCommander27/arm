@@ -10,7 +10,7 @@
 </div>
 
 
-## 🌟 Features
+## 🌟 Description
 **Attention!** This program can ONLY control Android TVs! To do this, the application and the TV must be in the same local network!  
 The application scans your network and connects to the found android TV.  
 It happens that the first attempt fails to find the TV, try pressing the search button again.  
@@ -36,4 +36,11 @@ pip install -r requirements.txt
 
 # Run app
 python main.py
+```
+
+## 🛠️ Building an executable file
+```bash
+pip install pyinstaller # or pip install auto-py-to-exe for use gui
+
+pyinstaller --noconfirm --onedir --windowed --icon "./resources/icon32.ico" --hidden-import "zeroconf._utils.ipaddress" --hidden-import "zeroconf._handlers.answers"  "./main.py"
 ```
