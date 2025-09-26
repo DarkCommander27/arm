@@ -18,10 +18,14 @@ from PyQt5.QtWidgets import (
     QSystemTrayIcon,
     QVBoxLayout,
     QWidget,
+    QListWidget,
+    QListWidgetItem,
+    QAbstractItemView,
 )
 from qasync import QEventLoop
 
 from remote_control import RemoteControl
+import history
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -64,9 +68,39 @@ class MainWindow(QWidget):
         search_button.clicked.connect(self._on_search)
         top_layout.addWidget(search_button)
 
+        # Connection history list
+
+    self.history_list = QListWidget()
+    self.history_list.setSelectionMode(QAbstractItemView.SingleSelection)
+    self.history_list.itemDoubleClicked.connect(self._on_history_item_double_clicked)
+    self._refresh_history_list()
+
+    # Button to toggle favorite
+    self.favorite_button = QPushButton('Toggle Favorite')
+    self.favorite_button.setFixedSize(120, 32)
+    self.favorite_button.clicked.connect(self._on_toggle_favorite)
+    self.favorite_button.setEnabled(False)
+    self.history_list.currentItemChanged.connect(self._on_history_selection_changed)
+
         main_layout = QVBoxLayout()
         main_layout.setContentsMargins(20, 20, 20, 20)
         main_layout.setSpacing(20)
+
+        main_layout.addLayout(top_layout)
+    main_layout.addWidget(QLabel('Connection History / Quick Access:'))
+    main_layout.addWidget(self.history_list)
+    main_layout.addWidget(self.favorite_button)
+    def _on_history_selection_changed(self, current, previous):
+        self.favorite_button.setEnabled(current is not None)
+
+    def _on_toggle_favorite(self):
+        item = self.history_list.currentItem()
+        if not item:
+            return
+        entry = item.data(1000)
+        new_fav = not entry.get('favorite', False)
+        history.set_favorite(entry['ip'], new_fav)
+        self._refresh_history_list()
 
         grid_layout = QGridLayout()
         grid_layout.setSpacing(15)
@@ -93,10 +127,40 @@ class MainWindow(QWidget):
         self.add_button(navigation_layout, '▶', 1, 2, self._on_dpad_right)
         self.add_button(navigation_layout, '▼', 2, 1, self._on_dpad_down)
 
-        main_layout.addLayout(top_layout)
         main_layout.addLayout(grid_layout)
         main_layout.addLayout(navigation_layout)
         self.setLayout(main_layout)
+
+    def _refresh_history_list(self):
+        self.history_list.clear()
+        for entry in history.get_history():
+            label = f"{'★ ' if entry.get('favorite') else ''}{entry['device_name']} ({entry['ip']})"
+            item = QListWidgetItem(label)
+            item.setData(1000, entry)  # Custom role for data
+            self.history_list.addItem(item)
+
+    def _on_history_item_double_clicked(self, item):
+        entry = item.data(1000)
+        # Attempt to connect to the selected device
+        asyncio.create_task(self._connect_to_history_device(entry))
+
+    async def _connect_to_history_device(self, entry):
+        self.search_label.setText(f"Connecting to {entry['device_name']}...")
+        try:
+            await self.remote_control.pair(
+                entry['ip'],
+                lambda: QInputDialog.getText(self, 'TV Remote Control', 'Enter the code:'),
+            )
+            device_info = self.remote_control.device_info()
+            if device_info:
+                self.search_label.setText(f"{device_info['manufacturer']} {device_info['model']}")
+                self.is_connected = True
+                # Update history with latest connection
+                history.update_history(entry['device_name'], entry['ip'], entry.get('favorite', False))
+                self._refresh_history_list()
+        except Exception as exc:
+            self.search_label.setText('Not connected')
+            _LOGGER.error('History Connect Error: %s', exc)
 
     def add_button(
         self,
