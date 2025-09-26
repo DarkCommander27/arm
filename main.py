@@ -90,17 +90,6 @@ class MainWindow(QWidget):
         main_layout.addWidget(QLabel('Connection History / Quick Access:'))
         main_layout.addWidget(self.history_list)
         main_layout.addWidget(self.favorite_button)
-    def _on_history_selection_changed(self, current, previous):
-        self.favorite_button.setEnabled(current is not None)
-
-    def _on_toggle_favorite(self):
-        item = self.history_list.currentItem()
-        if not item:
-            return
-        entry = item.data(1000)
-        new_fav = not entry.get('favorite', False)
-        history.set_favorite(entry['ip'], new_fav)
-        self._refresh_history_list()
 
         grid_layout = QGridLayout()
         grid_layout.setSpacing(15)
@@ -130,6 +119,20 @@ class MainWindow(QWidget):
         main_layout.addLayout(grid_layout)
         main_layout.addLayout(navigation_layout)
         self.setLayout(main_layout)
+        # Ensure the window is shown after layout setup
+        self.show()
+
+    def _on_history_selection_changed(self, current, previous):
+        self.favorite_button.setEnabled(current is not None)
+
+    def _on_toggle_favorite(self):
+        item = self.history_list.currentItem()
+        if not item:
+            return
+        entry = item.data(1000)
+        new_fav = not entry.get('favorite', False)
+        history.set_favorite(entry['ip'], new_fav)
+        self._refresh_history_list()
 
     def _refresh_history_list(self):
         self.history_list.clear()
