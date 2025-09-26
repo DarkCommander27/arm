@@ -70,26 +70,26 @@ class MainWindow(QWidget):
 
         # Connection history list
 
-    self.history_list = QListWidget()
-    self.history_list.setSelectionMode(QAbstractItemView.SingleSelection)
-    self.history_list.itemDoubleClicked.connect(self._on_history_item_double_clicked)
-    self._refresh_history_list()
+        self.history_list = QListWidget()
+        self.history_list.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.history_list.itemDoubleClicked.connect(self._on_history_item_double_clicked)
+        self._refresh_history_list()
 
-    # Button to toggle favorite
-    self.favorite_button = QPushButton('Toggle Favorite')
-    self.favorite_button.setFixedSize(120, 32)
-    self.favorite_button.clicked.connect(self._on_toggle_favorite)
-    self.favorite_button.setEnabled(False)
-    self.history_list.currentItemChanged.connect(self._on_history_selection_changed)
+        # Button to toggle favorite
+        self.favorite_button = QPushButton('Toggle Favorite')
+        self.favorite_button.setFixedSize(120, 32)
+        self.favorite_button.clicked.connect(self._on_toggle_favorite)
+        self.favorite_button.setEnabled(False)
+        self.history_list.currentItemChanged.connect(self._on_history_selection_changed)
 
         main_layout = QVBoxLayout()
         main_layout.setContentsMargins(20, 20, 20, 20)
         main_layout.setSpacing(20)
 
         main_layout.addLayout(top_layout)
-    main_layout.addWidget(QLabel('Connection History / Quick Access:'))
-    main_layout.addWidget(self.history_list)
-    main_layout.addWidget(self.favorite_button)
+        main_layout.addWidget(QLabel('Connection History / Quick Access:'))
+        main_layout.addWidget(self.history_list)
+        main_layout.addWidget(self.favorite_button)
     def _on_history_selection_changed(self, current, previous):
         self.favorite_button.setEnabled(current is not None)
 
