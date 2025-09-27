@@ -197,7 +197,7 @@ class MainWindow(QWidget):
         layout.addWidget(btn, row, col)
 
     def _on_tray_icon_activated(self, reason: int) -> None:
-        if reason == QSystemTrayIcon.Trigger:
+        if reason == QSystemTrayIcon.ActivationReason.Trigger:
             if self.isVisible():
                 self.hide()
             else:
@@ -213,7 +213,9 @@ class MainWindow(QWidget):
             self.remote_control.disconnect()
         except Exception as exc:
             _LOGGER.error('Disconnect Error: %s', exc)
-        QApplication.instance().quit()
+        app = QApplication.instance()
+        if app:
+            app.quit()
 
     def _create_tray(self) -> None:
         self.tray_icon = QSystemTrayIcon(self)
@@ -317,6 +319,10 @@ class MainWindow(QWidget):
             if device_info:
                 self.search_label.setText(f"{device_info['manufacturer']} {device_info['model']}")
                 self.is_connected = True
+                # Add newly paired device to history
+                device_name = f"{device_info.get('manufacturer', 'Unknown')} {device_info.get('model', 'Device')}"
+                history.update_history(device_name, addrs[0], False)
+                self._refresh_device_lists()
         else:
             self.search_label.setText('Android TV not found')
 
