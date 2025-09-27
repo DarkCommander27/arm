@@ -3,29 +3,27 @@ import functools
 import logging
 import sys
 from pathlib import Path
-from typing import Callable
 
+from PyQt5.QtCore import QSize, Qt
 from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import (
+    QAbstractItemView,
     QAction,
     QApplication,
     QGridLayout,
     QHBoxLayout,
     QInputDialog,
     QLabel,
+    QListWidget,
     QMenu,
     QPushButton,
     QSystemTrayIcon,
     QVBoxLayout,
     QWidget,
-    QListWidget,
-    QListWidgetItem,
-    QAbstractItemView,
 )
 from qasync import QEventLoop
 
 from remote_control import RemoteControl
-import history
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -63,58 +61,88 @@ class MainWindow(QWidget):
         self.search_label = QLabel('Not connected')
         top_layout.addWidget(self.search_label)
 
+        # Add 'Pair New Device' button
+        pair_button = QPushButton('Pair New Device')
+        pair_button.setFixedSize(160, 32)
+        pair_button.clicked.connect(self._on_pair_new_device)
+        top_layout.addWidget(pair_button)
+
+        # Keep the search/refresh button for rescanning
         search_button = QPushButton('⟲')
         search_button.setFixedSize(32, 32)
+        search_button.setToolTip('Rescan for devices')
         search_button.clicked.connect(self._on_search)
         top_layout.addWidget(search_button)
 
-        # Connection history list
+        # Favorites and History lists
+        self.favorites_list = QListWidget()
+        self.favorites_list.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.favorites_list.itemDoubleClicked.connect(self._on_favorite_item_double_clicked)
+        self.favorites_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.favorites_list.customContextMenuRequested.connect(self._show_history_context_menu)
+        self.favorites_list.currentItemChanged.connect(self._on_favorite_selection_changed)
 
         self.history_list = QListWidget()
         self.history_list.setSelectionMode(QAbstractItemView.SingleSelection)
         self.history_list.itemDoubleClicked.connect(self._on_history_item_double_clicked)
-        self._refresh_history_list()
+        self.history_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.history_list.customContextMenuRequested.connect(self._show_history_context_menu)
+        self.history_list.currentItemChanged.connect(self._on_history_selection_changed)
+
+        self._refresh_device_lists()
 
         # Button to toggle favorite
         self.favorite_button = QPushButton('Toggle Favorite')
-        self.favorite_button.setFixedSize(120, 32)
+        self.favorite_button.setFixedSize(140, 40)
         self.favorite_button.clicked.connect(self._on_toggle_favorite)
         self.favorite_button.setEnabled(False)
-        self.history_list.currentItemChanged.connect(self._on_history_selection_changed)
 
         main_layout = QVBoxLayout()
         main_layout.setContentsMargins(20, 20, 20, 20)
         main_layout.setSpacing(20)
 
         main_layout.addLayout(top_layout)
-        main_layout.addWidget(QLabel('Connection History / Quick Access:'))
+
+        # Section: Favorites
+        favorites_label = QLabel('Favorites')
+        favorites_label.setStyleSheet('font-weight: bold; font-size: 18px; color: #FFD700;')
+        main_layout.addWidget(favorites_label)
+        main_layout.addWidget(self.favorites_list)
+
+        # Section: History
+        history_label = QLabel('History')
+        history_label.setStyleSheet('font-weight: bold; font-size: 16px; color: #87CEEB;')
+        main_layout.addWidget(history_label)
         main_layout.addWidget(self.history_list)
+
+        # Favorite toggle button
         main_layout.addWidget(self.favorite_button)
 
         grid_layout = QGridLayout()
-        grid_layout.setSpacing(15)
-        grid_layout.setVerticalSpacing(15)
+        grid_layout.setSpacing(25)
+        grid_layout.setVerticalSpacing(25)
 
-        self.add_button(grid_layout, 'Power', 0, 0, self._on_power)
-        self.add_button(grid_layout, 'Back', 0, 1, self._on_back)
-        self.add_button(grid_layout, 'Menu', 0, 2, self._on_menu)
+        self.add_button(grid_layout, 'Power', 0, 0, self._on_power, size=QSize(80, 80))
+        self.add_button(grid_layout, 'Back', 0, 1, self._on_back, size=QSize(80, 80))
+        self.add_button(grid_layout, 'Menu', 0, 2, self._on_menu, size=QSize(80, 80))
 
-        self.add_button(grid_layout, 'CH▲', 1, 0, self._on_channel_up)
-        self.add_button(grid_layout, 'Home', 1, 1, self._on_home)
-        self.add_button(grid_layout, 'VOL+', 1, 2, self._on_volume_up)
+        self.add_button(grid_layout, 'CH▲', 1, 0, self._on_channel_up, size=QSize(80, 80))
+        self.add_button(grid_layout, 'Home', 1, 1, self._on_home, size=QSize(80, 80))
+        self.add_button(grid_layout, 'VOL+', 1, 2, self._on_volume_up, size=QSize(80, 80))
 
-        self.add_button(grid_layout, 'CH▼', 2, 0, self._on_channel_down)
-        self.add_button(grid_layout, 'Mute', 2, 1, self._on_mute)
-        self.add_button(grid_layout, 'VOL-', 2, 2, self._on_volume_down)
+        self.add_button(grid_layout, 'CH▼', 2, 0, self._on_channel_down, size=QSize(80, 80))
+        self.add_button(grid_layout, 'Mute', 2, 1, self._on_mute, size=QSize(80, 80))
+        self.add_button(grid_layout, 'VOL-', 2, 2, self._on_volume_down, size=QSize(80, 80))
 
         navigation_layout = QGridLayout()
-        navigation_layout.setHorizontalSpacing(10)
+        navigation_layout.setHorizontalSpacing(20)
+        navigation_layout.setVerticalSpacing(20)
 
-        self.add_button(navigation_layout, '▲', 0, 1, self._on_dpad_up)
-        self.add_button(navigation_layout, '◀', 1, 0, self._on_dpad_left)
-        self.add_button(navigation_layout, 'OK', 1, 1, self._on_dpad_center)
-        self.add_button(navigation_layout, '▶', 1, 2, self._on_dpad_right)
-        self.add_button(navigation_layout, '▼', 2, 1, self._on_dpad_down)
+        self.add_button(navigation_layout, '▲', 0, 1, self._on_dpad_up, size=QSize(70, 70))
+        self.add_button(navigation_layout, '◀', 1, 0, self._on_dpad_left, size=QSize(70, 70))
+        self.add_button(navigation_layout, 'OK', 1, 1, self._on_dpad_center, size=QSize(70, 70))
+        self.add_button(navigation_layout, '▶', 1, 2, self._on_dpad_right, size=QSize(70, 70))
+        self.add_button(navigation_layout, '▼', 2, 1, self._on_dpad_down, size=QSize(70, 70))
 
         main_layout.addLayout(grid_layout)
         main_layout.addLayout(navigation_layout)
@@ -122,107 +150,43 @@ class MainWindow(QWidget):
         # Ensure the window is shown after layout setup
         self.show()
 
-    def _on_history_selection_changed(self, current, previous):
-        self.favorite_button.setEnabled(current is not None)
-
-    def _on_toggle_favorite(self):
-        item = self.history_list.currentItem()
-        if not item:
-            return
-        entry = item.data(1000)
-        new_fav = not entry.get('favorite', False)
-        history.set_favorite(entry['ip'], new_fav)
-        self._refresh_history_list()
-
-    def _refresh_history_list(self):
-        self.history_list.clear()
-        for entry in history.get_history():
-            label = f"{'★ ' if entry.get('favorite') else ''}{entry['device_name']} ({entry['ip']})"
-            item = QListWidgetItem(label)
-            item.setData(1000, entry)  # Custom role for data
-            self.history_list.addItem(item)
-
-    def _on_history_item_double_clicked(self, item):
-        entry = item.data(1000)
-        # Attempt to connect to the selected device
-        asyncio.create_task(self._connect_to_history_device(entry))
-
-    async def _connect_to_history_device(self, entry):
-        self.search_label.setText(f"Connecting to {entry['device_name']}...")
-        try:
-            await self.remote_control.pair(
-                entry['ip'],
-                lambda: QInputDialog.getText(self, 'TV Remote Control', 'Enter the code:'),
-            )
-            device_info = self.remote_control.device_info()
-            if device_info:
-                self.search_label.setText(f"{device_info['manufacturer']} {device_info['model']}")
-                self.is_connected = True
-                # Update history with latest connection
-                history.update_history(entry['device_name'], entry['ip'], entry.get('favorite', False))
-                self._refresh_history_list()
-        except Exception as exc:
-            self.search_label.setText('Not connected')
-            _LOGGER.error('History Connect Error: %s', exc)
-
-    def add_button(
-        self,
-        layout: QGridLayout,
-        text: str,
-        row: int,
-        col: int,
-        handler: Callable | None = None,
-    ) -> None:
-        button = QPushButton(text)
-        button.setFixedSize(60, 60)
-
-        layout.addWidget(button, row, col)
-
-        if handler:
-            button.clicked.connect(handler)
-
-    def closeEvent(self, event):  # noqa: N802
-        event.ignore()
-        self.hide()
-
-    def _main_window_configure(self) -> None:
-        self.setWindowTitle('TV Remote Control')
-        self.setFixedSize(300, 560)
-        self.setStyleSheet("""
-            QLabel { color: white; font-size: 16px; }
+        # Apply a modern dark style to the main window and buttons
+        self.setStyleSheet('''
+            QWidget {
+                background-color: #23272e;
+                color: #e0e0e0;
+            }
             QPushButton {
-                background-color: #333;
-                color: white;
-                font-size: 14px;
-                border-radius: 10px;
+                background-color: #444b58;
+                color: #e0e0e0;
+                font-size: 15px;
+                border-radius: 8px;
+                padding: 8px 16px;
             }
             QPushButton:hover {
-                background-color: #444;
+                background-color: #5a6270;
             }
             QPushButton:pressed {
-                background-color: #555;
+                background-color: #32363e;
             }
-            QInputDialog {
-                background-color: #1E1E1E;
-            }
-            QDialog QPushButton {
+            QListWidget {
+                background-color: #2c313c;
+                border: 1px solid #444b58;
+                color: #e0e0e0;
                 font-size: 14px;
-                padding: 8px 16px;
-                border-radius: 10px;
-                color: white;
             }
-            QDialog QLineEdit {
-                font-size: 18px;
-                padding: 6px;
-                border: 2px solid #4CAF50;
-                border-radius: 10px;
-                color: white;
-                background-color: #444;
+            QLabel {
+                font-size: 14px;
             }
-            MainWindow {
-                background-color: #1E1E1E;
-            }
-        """)
+        ''')
+
+    def add_button(self, layout, label, row, col, handler, size=None):
+        if size is None:
+            size = QSize(80, 80)
+        btn = QPushButton(label)
+        btn.setFixedSize(size)
+        btn.clicked.connect(handler)
+        layout.addWidget(btn, row, col)
 
     def _on_tray_icon_activated(self, reason: int) -> None:
         if reason == QSystemTrayIcon.Trigger:

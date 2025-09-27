@@ -1,7 +1,7 @@
 import json
-from pathlib import Path
-from typing import List, Dict, Optional
 from datetime import datetime
+from pathlib import Path
+from typing import Dict, List
 
 HISTORY_FILE = Path('connection_history.json')
 
@@ -45,4 +45,10 @@ def get_favorites() -> List[Dict]:
 def get_history() -> List[Dict]:
     # Favorites first, then others by last_connected
     history = load_history()
-    return sorted(history, key=lambda x: (not x.get('favorite', False), -datetime.fromisoformat(x['last_connected']).timestamp()))
+    return sorted(
+        history,
+        key=lambda x: (
+            not x.get('favorite', False),
+            -datetime.fromisoformat(x['last_connected']).timestamp()
+        )
+    )

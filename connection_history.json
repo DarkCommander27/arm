@@ -1,1 +1,8 @@
-[]
+[
+  {
+    "device_name": "Test Device",
+    "ip": "192.168.1.100",
+    "last_connected": "2025-09-27T17:52:03.713838",
+    "favorite": true
+  }
+]
