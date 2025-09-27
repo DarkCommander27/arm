@@ -15,6 +15,7 @@ from PyQt5.QtWidgets import (
     QInputDialog,
     QLabel,
     QListWidget,
+    QListWidgetItem,
     QMenu,
     QPushButton,
     QSystemTrayIcon,
@@ -24,6 +25,7 @@ from PyQt5.QtWidgets import (
 from qasync import QEventLoop
 
 from remote_control import RemoteControl
+import history
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -326,6 +328,70 @@ class MainWindow(QWidget):
         """Show context menu for history items."""
         # This method can be expanded later for right-click context menu
         pass
+
+    def _on_favorite_item_double_clicked(self, item):
+        """Handle double-click on favorite item."""
+        entry = item.data(1000)
+        asyncio.create_task(self._connect_to_history_device(entry))
+
+    def _on_history_item_double_clicked(self, item):
+        """Handle double-click on history item."""
+        entry = item.data(1000)
+        asyncio.create_task(self._connect_to_history_device(entry))
+
+    def _on_favorite_selection_changed(self, current, previous):
+        """Handle selection change in favorites list."""
+        self.favorite_button.setEnabled(current is not None)
+
+    def _on_history_selection_changed(self, current, previous):
+        """Handle selection change in history list."""
+        self.favorite_button.setEnabled(current is not None)
+
+    def _on_toggle_favorite(self):
+        """Toggle favorite status of selected device."""
+        # Toggle favorite for selected item in either list
+        item = self.favorites_list.currentItem() or self.history_list.currentItem()
+        if not item:
+            return
+        entry = item.data(1000)
+        new_fav = not entry.get('favorite', False)
+        history.set_favorite(entry['ip'], new_fav)
+        self._refresh_device_lists()
+
+    def _refresh_device_lists(self):
+        """Refresh both favorites and history lists."""
+        self.favorites_list.clear()
+        self.history_list.clear()
+        for entry in history.get_favorites():
+            label = f"★ {entry['device_name']} ({entry['ip']})"
+            item = QListWidgetItem(label)
+            item.setData(1000, entry)
+            self.favorites_list.addItem(item)
+        for entry in history.get_history():
+            if not entry.get('favorite'):
+                label = f"{entry['device_name']} ({entry['ip']})"
+                item = QListWidgetItem(label)
+                item.setData(1000, entry)
+                self.history_list.addItem(item)
+
+    async def _connect_to_history_device(self, entry):
+        """Connect to a device from history or favorites."""
+        self.search_label.setText(f"Connecting to {entry['device_name']}...")
+        try:
+            await self.remote_control.pair(
+                entry['ip'],
+                lambda: QInputDialog.getText(self, 'TV Remote Control', 'Enter the code:'),
+            )
+            device_info = self.remote_control.device_info()
+            if device_info:
+                self.search_label.setText(f"{device_info['manufacturer']} {device_info['model']}")
+                self.is_connected = True
+                # Update history with latest connection
+                history.update_history(entry['device_name'], entry['ip'], entry.get('favorite', False))
+                self._refresh_device_lists()
+        except Exception as exc:
+            self.search_label.setText('Not connected')
+            _LOGGER.error('History Connect Error: %s', exc)
 
 
 if __name__ == '__main__':
