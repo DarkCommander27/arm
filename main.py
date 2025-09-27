@@ -65,13 +65,13 @@ class MainWindow(QWidget):
 
         # Add 'Pair New Device' button
         pair_button = QPushButton('Pair New Device')
-        pair_button.setFixedSize(160, 32)
+        pair_button.setFixedSize(180, 40)
         pair_button.clicked.connect(self._on_pair_new_device)
         top_layout.addWidget(pair_button)
 
         # Keep the search/refresh button for rescanning
         search_button = QPushButton('⟲')
-        search_button.setFixedSize(32, 32)
+        search_button.setFixedSize(40, 40)
         search_button.setToolTip('Rescan for devices')
         search_button.clicked.connect(self._on_search)
         top_layout.addWidget(search_button)
@@ -99,7 +99,7 @@ class MainWindow(QWidget):
 
         # Button to toggle favorite
         self.favorite_button = QPushButton('Toggle Favorite')
-        self.favorite_button.setFixedSize(140, 40)
+        self.favorite_button.setFixedSize(160, 45)
         self.favorite_button.clicked.connect(self._on_toggle_favorite)
         self.favorite_button.setEnabled(False)
 
@@ -128,27 +128,29 @@ class MainWindow(QWidget):
         grid_layout.setSpacing(8)  # Reduced spacing
         grid_layout.setVerticalSpacing(8)
 
-        self.add_button(grid_layout, 'Power', 0, 0, self._on_power, size=QSize(60, 50))
-        self.add_button(grid_layout, 'Back', 0, 1, self._on_back, size=QSize(60, 50))
-        self.add_button(grid_layout, 'Menu', 0, 2, self._on_menu, size=QSize(60, 50))
+        # Remote Control buttons
+        self.add_button(grid_layout, 'Power', 0, 0, self._on_power, size=QSize(80, 60))
+        self.add_button(grid_layout, 'Back', 0, 1, self._on_back, size=QSize(80, 60))
+        self.add_button(grid_layout, 'Menu', 0, 2, self._on_menu, size=QSize(80, 60))
 
-        self.add_button(grid_layout, 'CH▲', 1, 0, self._on_channel_up, size=QSize(60, 50))
-        self.add_button(grid_layout, 'Home', 1, 1, self._on_home, size=QSize(60, 50))
-        self.add_button(grid_layout, 'VOL+', 1, 2, self._on_volume_up, size=QSize(60, 50))
+        self.add_button(grid_layout, 'CH▲', 1, 0, self._on_channel_up, size=QSize(80, 60))
+        self.add_button(grid_layout, 'Home', 1, 1, self._on_home, size=QSize(80, 60))
+        self.add_button(grid_layout, 'VOL+', 1, 2, self._on_volume_up, size=QSize(80, 60))
 
-        self.add_button(grid_layout, 'CH▼', 2, 0, self._on_channel_down, size=QSize(60, 50))
-        self.add_button(grid_layout, 'Mute', 2, 1, self._on_mute, size=QSize(60, 50))
-        self.add_button(grid_layout, 'VOL-', 2, 2, self._on_volume_down, size=QSize(60, 50))
+        self.add_button(grid_layout, 'CH▼', 2, 0, self._on_channel_down, size=QSize(80, 60))
+        self.add_button(grid_layout, 'Mute', 2, 1, self._on_mute, size=QSize(80, 60))
+        self.add_button(grid_layout, 'VOL-', 2, 2, self._on_volume_down, size=QSize(80, 60))
 
         navigation_layout = QGridLayout()
         navigation_layout.setHorizontalSpacing(8)  # Reduced spacing
         navigation_layout.setVerticalSpacing(8)
 
-        self.add_button(navigation_layout, '▲', 0, 1, self._on_dpad_up, size=QSize(50, 50))
-        self.add_button(navigation_layout, '◀', 1, 0, self._on_dpad_left, size=QSize(50, 50))
-        self.add_button(navigation_layout, 'OK', 1, 1, self._on_dpad_center, size=QSize(50, 50))
-        self.add_button(navigation_layout, '▶', 1, 2, self._on_dpad_right, size=QSize(50, 50))
-        self.add_button(navigation_layout, '▼', 2, 1, self._on_dpad_down, size=QSize(50, 50))
+        # D-Pad navigation
+        self.add_button(navigation_layout, '▲', 0, 1, self._on_dpad_up, size=QSize(60, 60))
+        self.add_button(navigation_layout, '◀', 1, 0, self._on_dpad_left, size=QSize(60, 60))
+        self.add_button(navigation_layout, 'OK', 1, 1, self._on_dpad_center, size=QSize(60, 60))
+        self.add_button(navigation_layout, '▶', 1, 2, self._on_dpad_right, size=QSize(60, 60))
+        self.add_button(navigation_layout, '▼', 2, 1, self._on_dpad_down, size=QSize(60, 60))
 
         main_layout.addLayout(grid_layout)
         main_layout.addLayout(navigation_layout)
@@ -165,36 +167,48 @@ class MainWindow(QWidget):
             QPushButton {
                 background-color: #444b58;
                 color: #e0e0e0;
-                font-size: 15px;
+                font-size: 12px;
+                font-weight: bold;
+                border: 2px solid #6b46c1;
                 border-radius: 8px;
-                padding: 8px 16px;
+                padding: 4px 8px;
+                min-height: 20px;
             }
             QPushButton:hover {
-                background-color: #5a6270;
+                background-color: #7c3aed;
+                border-color: #8b5cf6;
+                color: #ffffff;
             }
             QPushButton:pressed {
-                background-color: #32363e;
+                background-color: #5b21b6;
+                border-color: #6b46c1;
             }
             QListWidget {
                 background-color: #2c313c;
-                border: 1px solid #444b58;
+                border: 1px solid #6b46c1;
                 color: #e0e0e0;
                 font-size: 14px;
+                selection-background-color: #7c3aed;
+            }
+            QListWidget::item:selected {
+                background-color: #7c3aed;
+                color: #ffffff;
             }
             QLabel {
                 font-size: 14px;
+                color: #e0e0e0;
             }
         ''')
 
     def _main_window_configure(self):
         """Configure the main window properties."""
         self.setWindowTitle('Android TV Remote Control')
-        self.setFixedSize(500, 750)  # Larger window for better layout
+        self.setFixedSize(550, 800)  # Larger window for better layout with bigger buttons
         self.setWindowIcon(QIcon('resources/icon32.ico'))
 
     def add_button(self, layout, label, row, col, handler, size=None):
         if size is None:
-            size = QSize(80, 80)
+            size = QSize(80, 60)
         btn = QPushButton(label)
         btn.setFixedSize(size)
         btn.clicked.connect(handler)
