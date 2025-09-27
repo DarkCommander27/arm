@@ -83,6 +83,8 @@ class MainWindow(QWidget):
         self.favorites_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.favorites_list.customContextMenuRequested.connect(self._show_history_context_menu)
         self.favorites_list.currentItemChanged.connect(self._on_favorite_selection_changed)
+        self.favorites_list.setMinimumHeight(80)
+        self.favorites_list.setMaximumHeight(120)
 
         self.history_list = QListWidget()
         self.history_list.setSelectionMode(QAbstractItemView.SingleSelection)
@@ -90,6 +92,8 @@ class MainWindow(QWidget):
         self.history_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.history_list.customContextMenuRequested.connect(self._show_history_context_menu)
         self.history_list.currentItemChanged.connect(self._on_history_selection_changed)
+        self.history_list.setMinimumHeight(100)
+        self.history_list.setMaximumHeight(150)
 
         self._refresh_device_lists()
 
@@ -100,8 +104,8 @@ class MainWindow(QWidget):
         self.favorite_button.setEnabled(False)
 
         main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(20, 20, 20, 20)
-        main_layout.setSpacing(20)
+        main_layout.setContentsMargins(15, 15, 15, 15)  # Reduced margins
+        main_layout.setSpacing(12)  # Reduced spacing
 
         main_layout.addLayout(top_layout)
 
@@ -121,30 +125,30 @@ class MainWindow(QWidget):
         main_layout.addWidget(self.favorite_button)
 
         grid_layout = QGridLayout()
-        grid_layout.setSpacing(25)
-        grid_layout.setVerticalSpacing(25)
+        grid_layout.setSpacing(8)  # Reduced spacing
+        grid_layout.setVerticalSpacing(8)
 
-        self.add_button(grid_layout, 'Power', 0, 0, self._on_power, size=QSize(80, 80))
-        self.add_button(grid_layout, 'Back', 0, 1, self._on_back, size=QSize(80, 80))
-        self.add_button(grid_layout, 'Menu', 0, 2, self._on_menu, size=QSize(80, 80))
+        self.add_button(grid_layout, 'Power', 0, 0, self._on_power, size=QSize(60, 50))
+        self.add_button(grid_layout, 'Back', 0, 1, self._on_back, size=QSize(60, 50))
+        self.add_button(grid_layout, 'Menu', 0, 2, self._on_menu, size=QSize(60, 50))
 
-        self.add_button(grid_layout, 'CH▲', 1, 0, self._on_channel_up, size=QSize(80, 80))
-        self.add_button(grid_layout, 'Home', 1, 1, self._on_home, size=QSize(80, 80))
-        self.add_button(grid_layout, 'VOL+', 1, 2, self._on_volume_up, size=QSize(80, 80))
+        self.add_button(grid_layout, 'CH▲', 1, 0, self._on_channel_up, size=QSize(60, 50))
+        self.add_button(grid_layout, 'Home', 1, 1, self._on_home, size=QSize(60, 50))
+        self.add_button(grid_layout, 'VOL+', 1, 2, self._on_volume_up, size=QSize(60, 50))
 
-        self.add_button(grid_layout, 'CH▼', 2, 0, self._on_channel_down, size=QSize(80, 80))
-        self.add_button(grid_layout, 'Mute', 2, 1, self._on_mute, size=QSize(80, 80))
-        self.add_button(grid_layout, 'VOL-', 2, 2, self._on_volume_down, size=QSize(80, 80))
+        self.add_button(grid_layout, 'CH▼', 2, 0, self._on_channel_down, size=QSize(60, 50))
+        self.add_button(grid_layout, 'Mute', 2, 1, self._on_mute, size=QSize(60, 50))
+        self.add_button(grid_layout, 'VOL-', 2, 2, self._on_volume_down, size=QSize(60, 50))
 
         navigation_layout = QGridLayout()
-        navigation_layout.setHorizontalSpacing(20)
-        navigation_layout.setVerticalSpacing(20)
+        navigation_layout.setHorizontalSpacing(8)  # Reduced spacing
+        navigation_layout.setVerticalSpacing(8)
 
-        self.add_button(navigation_layout, '▲', 0, 1, self._on_dpad_up, size=QSize(70, 70))
-        self.add_button(navigation_layout, '◀', 1, 0, self._on_dpad_left, size=QSize(70, 70))
-        self.add_button(navigation_layout, 'OK', 1, 1, self._on_dpad_center, size=QSize(70, 70))
-        self.add_button(navigation_layout, '▶', 1, 2, self._on_dpad_right, size=QSize(70, 70))
-        self.add_button(navigation_layout, '▼', 2, 1, self._on_dpad_down, size=QSize(70, 70))
+        self.add_button(navigation_layout, '▲', 0, 1, self._on_dpad_up, size=QSize(50, 50))
+        self.add_button(navigation_layout, '◀', 1, 0, self._on_dpad_left, size=QSize(50, 50))
+        self.add_button(navigation_layout, 'OK', 1, 1, self._on_dpad_center, size=QSize(50, 50))
+        self.add_button(navigation_layout, '▶', 1, 2, self._on_dpad_right, size=QSize(50, 50))
+        self.add_button(navigation_layout, '▼', 2, 1, self._on_dpad_down, size=QSize(50, 50))
 
         main_layout.addLayout(grid_layout)
         main_layout.addLayout(navigation_layout)
@@ -185,7 +189,7 @@ class MainWindow(QWidget):
     def _main_window_configure(self):
         """Configure the main window properties."""
         self.setWindowTitle('Android TV Remote Control')
-        self.setFixedSize(400, 600)
+        self.setFixedSize(500, 750)  # Larger window for better layout
         self.setWindowIcon(QIcon('resources/icon32.ico'))
 
     def add_button(self, layout, label, row, col, handler, size=None):
@@ -306,10 +310,13 @@ class MainWindow(QWidget):
             self.search_label.setText(f'Pair to {addrs[0]}')
 
             try:
-                await self.remote_control.pair(
-                    addrs[0],
-                    lambda: QInputDialog.getText(self, 'TV Remote Control', 'Enter the code:'),
-                )
+                def get_pairing_code():
+                    code, ok = QInputDialog.getText(self, 'TV Remote Control', 'Enter the pairing code displayed on your TV:')
+                    if ok and code.strip():
+                        return (code.strip(), True)
+                    return ('', False)
+                
+                await self.remote_control.pair(addrs[0], get_pairing_code)
                 device_info = self.remote_control.device_info()
             except Exception as exc:
                 self.search_label.setText('Not connected')
@@ -384,10 +391,13 @@ class MainWindow(QWidget):
         """Connect to a device from history or favorites."""
         self.search_label.setText(f"Connecting to {entry['device_name']}...")
         try:
-            await self.remote_control.pair(
-                entry['ip'],
-                lambda: QInputDialog.getText(self, 'TV Remote Control', 'Enter the code:'),
-            )
+            def get_pairing_code():
+                code, ok = QInputDialog.getText(self, 'TV Remote Control', 'Enter the pairing code displayed on your TV:')
+                if ok and code.strip():
+                    return (code.strip(), True)
+                return ('', False)
+            
+            await self.remote_control.pair(entry['ip'], get_pairing_code)
             device_info = self.remote_control.device_info()
             if device_info:
                 self.search_label.setText(f"{device_info['manufacturer']} {device_info['model']}")
