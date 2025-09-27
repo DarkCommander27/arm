@@ -180,6 +180,12 @@ class MainWindow(QWidget):
             }
         ''')
 
+    def _main_window_configure(self):
+        """Configure the main window properties."""
+        self.setWindowTitle('Android TV Remote Control')
+        self.setFixedSize(400, 600)
+        self.setWindowIcon(QIcon('resources/icon32.ico'))
+
     def add_button(self, layout, label, row, col, handler, size=None):
         if size is None:
             size = QSize(80, 80)
@@ -311,6 +317,15 @@ class MainWindow(QWidget):
                 self.is_connected = True
         else:
             self.search_label.setText('Android TV not found')
+
+    def _on_pair_new_device(self):
+        """Handler for the 'Pair New Device' button."""
+        asyncio.create_task(self._pair())
+
+    def _show_history_context_menu(self, position):
+        """Show context menu for history items."""
+        # This method can be expanded later for right-click context menu
+        pass
 
 
 if __name__ == '__main__':
