@@ -26,8 +26,20 @@ jobs:
         run: |
           pyinstaller app.spec
 
+      - name: Install NSIS
+        run: |
+          choco install nsis -y
+
+      - name: Build NSIS installer
+        run: |
+          $ProjectDir = ${{ github.workspace }}
+          & makensis /XPROJECT_DIR="$ProjectDir" "$ProjectDir\installer\nsis\installer.nsi"
+        shell: pwsh
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: windows-build
-          path: dist/AndroidTVRemote/**
+          path: |
+            dist/AndroidTVRemote/**
+            AndroidTVRemote-Installer.exe
