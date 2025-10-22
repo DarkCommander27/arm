@@ -21,10 +21,11 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install pyinstaller
 
       - name: Run PyInstaller
         run: |
-          pyinstaller app.spec
+          python -m PyInstaller app.spec
 
       - name: Install NSIS
         run: |
@@ -38,20 +39,33 @@ jobs:
           & makensis /XPROJECT_DIR="$ProjectDir" /XVERSION="$Version" "$ProjectDir\installer\nsis\installer.nsi"
         shell: pwsh
 
-      - name: Upload artifact
+      - name: Prepare artifacts
         run: |
           $Version = (Get-Content -Path "${{ github.workspace }}\version.txt").Trim()
           Write-Host "Version: $Version"
           Write-Host "Installer: AndroidTVRemote-$Version-Installer.exe"
-          # Rename for clarity in artifacts list
-          Copy-Item -Path "AndroidTVRemote-$Version-Installer.exe" -Destination "AndroidTVRemote-Installer.exe" -Force
+          
+          # Check if installer exists and rename for clarity in artifacts list
+          if (Test-Path "AndroidTVRemote-$Version-Installer.exe") {
+            Copy-Item -Path "AndroidTVRemote-$Version-Installer.exe" -Destination "AndroidTVRemote-Installer.exe" -Force
+            Write-Host "Installer found and renamed for clarity in artifacts"
+          } else {
+            Write-Host "Warning: Installer not found at expected path"
+          }
         shell: pwsh
         
-      - name: Upload artifacts
+      - name: Upload app build
         uses: actions/upload-artifact@v4
         with:
-          name: windows-build
+          name: app-build
+          path: dist/AndroidTVRemote/**
+          
+      - name: Upload installer (if exists)
+        uses: actions/upload-artifact@v4
+        if: ${{ success() }}
+        continue-on-error: true
+        with:
+          name: installer
           path: |
-            dist/AndroidTVRemote/**
             AndroidTVRemote-*-Installer.exe
             AndroidTVRemote-Installer.exe
