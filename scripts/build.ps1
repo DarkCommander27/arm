@@ -38,7 +38,7 @@ if ($Installer) {
 		# Run makensis with installer script and version
 		$ProjectDir = (Get-Location).Path
 		$NSISScript = Join-Path $ProjectDir "installer\nsis\installer.nsi"
-		makensis.exe "/XPROJECT_DIR=$ProjectDir" "/XVERSION=$Version" "$NSISScript"
+		makensis.exe "/DPROJECT_DIR=$ProjectDir" "/DVERSION=$Version" "$NSISScript"
 
 		Write-Host "Installer created: AndroidTVRemote-$Version-Installer.exe"
 }

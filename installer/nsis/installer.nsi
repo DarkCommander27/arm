@@ -43,7 +43,11 @@ Section "Android TV Remote" SecMain
   SetOutPath "$INSTDIR"
   
   ; Copy all files from the application folder
-  File /r "${PROJECT_DIR}\\dist\\AndroidTVRemote\\*"
+  !if /FileExists "${PROJECT_DIR}\dist\AndroidTVRemote"
+    File /r "${PROJECT_DIR}\dist\AndroidTVRemote\*"
+  !else
+    File /r "${PROJECT_DIR}\dist\app\*"
+  !endif
   
   ; Write uninstaller
   WriteUninstaller "$INSTDIR\\uninstall.exe"

@@ -47,7 +47,8 @@ jobs:
           # Check if makensis exists
           if (Test-Path $MakensisPath) {
               Write-Host "Found makensis at: $MakensisPath"
-              & "$MakensisPath" /XPROJECT_DIR="$ProjectDir" /XVERSION="$Version" "$ProjectDir\installer\nsis\installer.nsi"
+              # NSIS define parameters use /D not /X
+              & "$MakensisPath" "/DPROJECT_DIR=$ProjectDir" "/DVERSION=$Version" "$ProjectDir\installer\nsis\installer.nsi"
           } else {
               Write-Host "Error: makensis not found at expected path"
               Write-Host "Searching for makensis..."
