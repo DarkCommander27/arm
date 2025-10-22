@@ -30,13 +30,30 @@ jobs:
       - name: Install NSIS
         run: |
           choco install nsis -y
+          # Make sure we can find the NSIS executable
+          $NsisPath = "C:\Program Files (x86)\NSIS"
+          Write-Host "Adding NSIS to PATH: $NsisPath"
+          echo "$NsisPath" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          # Wait for path update
+          Start-Sleep -Seconds 5
 
       - name: Build NSIS installer
         run: |
           $Version = (Get-Content -Path "${{ github.workspace }}\version.txt").Trim()
           Write-Host "Building installer for version $Version"
           $ProjectDir = "${{ github.workspace }}"
-          & makensis /XPROJECT_DIR="$ProjectDir" /XVERSION="$Version" "$ProjectDir\installer\nsis\installer.nsi"
+          $MakensisPath = "C:\Program Files (x86)\NSIS\makensis.exe"
+          
+          # Check if makensis exists
+          if (Test-Path $MakensisPath) {
+              Write-Host "Found makensis at: $MakensisPath"
+              & "$MakensisPath" /XPROJECT_DIR="$ProjectDir" /XVERSION="$Version" "$ProjectDir\installer\nsis\installer.nsi"
+          } else {
+              Write-Host "Error: makensis not found at expected path"
+              Write-Host "Searching for makensis..."
+              Get-ChildItem -Path "C:\Program Files (x86)" -Recurse -Filter "makensis.exe" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "Found at: $($_.FullName)" }
+              exit 1
+          }
         shell: pwsh
 
       - name: Prepare artifacts
