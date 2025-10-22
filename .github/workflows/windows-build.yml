@@ -32,14 +32,26 @@ jobs:
 
       - name: Build NSIS installer
         run: |
-          $ProjectDir = ${{ github.workspace }}
-          & makensis /XPROJECT_DIR="$ProjectDir" "$ProjectDir\installer\nsis\installer.nsi"
+          $Version = (Get-Content -Path "${{ github.workspace }}\version.txt").Trim()
+          Write-Host "Building installer for version $Version"
+          $ProjectDir = "${{ github.workspace }}"
+          & makensis /XPROJECT_DIR="$ProjectDir" /XVERSION="$Version" "$ProjectDir\installer\nsis\installer.nsi"
         shell: pwsh
 
       - name: Upload artifact
+        run: |
+          $Version = (Get-Content -Path "${{ github.workspace }}\version.txt").Trim()
+          Write-Host "Version: $Version"
+          Write-Host "Installer: AndroidTVRemote-$Version-Installer.exe"
+          # Rename for clarity in artifacts list
+          Copy-Item -Path "AndroidTVRemote-$Version-Installer.exe" -Destination "AndroidTVRemote-Installer.exe" -Force
+        shell: pwsh
+        
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: windows-build
           path: |
             dist/AndroidTVRemote/**
+            AndroidTVRemote-*-Installer.exe
             AndroidTVRemote-Installer.exe

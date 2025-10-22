@@ -31,10 +31,14 @@ if ($Installer) {
 		# Install NSIS
 		choco install nsis -y
 
-		# Run makensis with installer script
+		# Read version from version.txt
+		$Version = (Get-Content -Path "version.txt").Trim()
+		Write-Host "Building installer for version $Version"
+		
+		# Run makensis with installer script and version
 		$ProjectDir = (Get-Location).Path
 		$NSISScript = Join-Path $ProjectDir "installer\nsis\installer.nsi"
-		makensis.exe "/XPROJECT_DIR=$ProjectDir" "$NSISScript"
+		makensis.exe "/XPROJECT_DIR=$ProjectDir" "/XVERSION=$Version" "$NSISScript"
 
-		Write-Host "Installer created: AndroidTVRemote-Installer.exe"
+		Write-Host "Installer created: AndroidTVRemote-$Version-Installer.exe"
 }
