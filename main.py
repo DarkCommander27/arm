@@ -10,6 +10,7 @@ from PyQt5.QtWidgets import (
     QAbstractItemView,
     QAction,
     QApplication,
+    QDialog,
     QGridLayout,
     QHBoxLayout,
     QInputDialog,
@@ -21,6 +22,8 @@ from PyQt5.QtWidgets import (
     QSystemTrayIcon,
     QVBoxLayout,
     QWidget,
+    QCheckBox,
+    QScrollArea,
 )
 from qasync import QEventLoop
 
@@ -28,6 +31,64 @@ from remote_control import RemoteControl
 import history
 
 _LOGGER = logging.getLogger(__name__)
+
+
+class FavoritesDialog(QDialog):
+    """Dialog for managing favorite apps."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle('Manage Quick Apps')
+        self.setFixedSize(300, 300)
+        
+        layout = QVBoxLayout()
+        layout.setContentsMargins(10, 10, 10, 10)
+        
+        # App list with checkboxes
+        self.app_checks = {}
+        apps = [
+            ('Netflix', 'netflix'),
+            ('YouTube', 'youtube'),
+            ('Prime Video', 'prime'),
+            ('Plex', 'plex'),
+            ('Settings', 'settings'),
+            ('HBO Max', 'hbo'),
+            ('Disney+', 'disney'),
+            ('Hulu', 'hulu'),
+        ]
+        
+        scroll = QScrollArea()
+        scroll_widget = QWidget()
+        scroll_layout = QVBoxLayout()
+        
+        for app_name, app_key in apps:
+            checkbox = QCheckBox(app_name)
+            checkbox.setStyleSheet('font-size: 12px;')
+            self.app_checks[app_key] = (checkbox, app_name)
+            scroll_layout.addWidget(checkbox)
+        
+        scroll_widget.setLayout(scroll_layout)
+        scroll.setWidget(scroll_widget)
+        layout.addWidget(scroll)
+        
+        # Buttons
+        button_layout = QHBoxLayout()
+        ok_btn = QPushButton('OK')
+        ok_btn.clicked.connect(self.accept)
+        cancel_btn = QPushButton('Cancel')
+        cancel_btn.clicked.connect(self.reject)
+        button_layout.addWidget(ok_btn)
+        button_layout.addWidget(cancel_btn)
+        layout.addLayout(button_layout)
+        
+        self.setLayout(layout)
+    
+    def get_selected_apps(self):
+        """Get list of selected apps."""
+        selected = []
+        for key, (checkbox, name) in self.app_checks.items():
+            if checkbox.isChecked():
+                selected.append((name, key))
+        return selected
 
 
 def connection_check(func):
@@ -76,54 +137,74 @@ class MainWindow(QWidget):
         search_button.clicked.connect(self._on_search)
         top_layout.addWidget(search_button)
 
+        # Manage favorites button
+        manage_fav_btn = QPushButton('⭐')
+        manage_fav_btn.setFixedSize(40, 40)
+        manage_fav_btn.setToolTip('Manage quick apps')
+        manage_fav_btn.clicked.connect(self._on_manage_favorites)
+        top_layout.addWidget(manage_fav_btn)
+
         # Favorite apps grid layout for quick access
         self.favorite_apps_layout = QGridLayout()
-        self.favorite_apps_layout.setSpacing(5)
+        self.favorite_apps_layout.setSpacing(3)
         self.favorite_apps = {}  # Dictionary to store favorite app buttons
+        
+        # History list (previously connected devices)
+        self.history_list = QListWidget()
+        self.history_list.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.history_list.itemDoubleClicked.connect(self._on_history_item_double_clicked)
+        self.history_list.setMinimumHeight(60)
+        self.history_list.setMaximumHeight(80)
 
         self._refresh_device_lists()
 
         main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(10, 10, 10, 10)  # Reduced margins
-        main_layout.setSpacing(4)  # Reduced spacing
+        main_layout.setContentsMargins(8, 8, 8, 8)  # Further reduced margins
+        main_layout.setSpacing(3)  # Further reduced spacing
 
         main_layout.addLayout(top_layout)
 
-        # Section: Quick App Launchers
-        apps_label = QLabel('Quick Launch')
-        apps_label.setStyleSheet('font-weight: bold; font-size: 12px; color: #87CEEB;')
+        # Section: Quick Launch
+        apps_label = QLabel('Quick Apps')
+        apps_label.setStyleSheet('font-weight: bold; font-size: 11px; color: #87CEEB;')
         main_layout.addWidget(apps_label)
         main_layout.addLayout(self.favorite_apps_layout)
 
+        # Section: Recently Connected
+        history_label = QLabel('Recently Connected')
+        history_label.setStyleSheet('font-weight: bold; font-size: 10px; color: #90EE90;')
+        main_layout.addWidget(history_label)
+        main_layout.addWidget(self.history_list)
+
         grid_layout = QGridLayout()
-        grid_layout.setSpacing(4)  # Reduced spacing further
-        grid_layout.setVerticalSpacing(4)
+        grid_layout.setSpacing(3)  # Reduced spacing
+        grid_layout.setVerticalSpacing(3)
         grid_layout.setContentsMargins(0, 0, 0, 0)
 
         # Remote Control buttons
-        self.add_button(grid_layout, 'Power', 0, 0, self._on_power, size=QSize(70, 50))
-        self.add_button(grid_layout, 'Back', 0, 1, self._on_back, size=QSize(70, 50))
-        self.add_button(grid_layout, 'Menu', 0, 2, self._on_menu, size=QSize(70, 50))
+        self.add_button(grid_layout, 'Power', 0, 0, self._on_power, size=QSize(60, 40))
+        self.add_button(grid_layout, 'Back', 0, 1, self._on_back, size=QSize(60, 40))
+        self.add_button(grid_layout, 'Menu', 0, 2, self._on_menu, size=QSize(60, 40))
 
-        self.add_button(grid_layout, 'CH▲', 1, 0, self._on_channel_up, size=QSize(70, 50))
-        self.add_button(grid_layout, 'Home', 1, 1, self._on_home, size=QSize(70, 50))
-        self.add_button(grid_layout, 'VOL+', 1, 2, self._on_volume_up, size=QSize(70, 50))
+        self.add_button(grid_layout, 'CH▲', 1, 0, self._on_channel_up, size=QSize(60, 40))
+        self.add_button(grid_layout, 'Home', 1, 1, self._on_home, size=QSize(60, 40))
+        self.add_button(grid_layout, 'VOL+', 1, 2, self._on_volume_up, size=QSize(60, 40))
 
-        self.add_button(grid_layout, 'CH▼', 2, 0, self._on_channel_down, size=QSize(70, 50))
-        self.add_button(grid_layout, 'Mute', 2, 1, self._on_mute, size=QSize(70, 50))
-        self.add_button(grid_layout, 'VOL-', 2, 2, self._on_volume_down, size=QSize(70, 50))
+        self.add_button(grid_layout, 'CH▼', 2, 0, self._on_channel_down, size=QSize(60, 40))
+        self.add_button(grid_layout, 'Mute', 2, 1, self._on_mute, size=QSize(60, 40))
+        self.add_button(grid_layout, 'VOL-', 2, 2, self._on_volume_down, size=QSize(60, 40))
 
         navigation_layout = QGridLayout()
-        navigation_layout.setHorizontalSpacing(4)  # Reduced spacing
-        navigation_layout.setVerticalSpacing(4)
+        navigation_layout.setHorizontalSpacing(3)  # Reduced spacing
+        navigation_layout.setVerticalSpacing(3)
         navigation_layout.setContentsMargins(0, 0, 0, 0)
 
         # D-Pad navigation
-        self.add_button(navigation_layout, '▲', 0, 1, self._on_dpad_up, size=QSize(50, 50))
-        self.add_button(navigation_layout, '◀', 1, 0, self._on_dpad_left, size=QSize(50, 50))
-        self.add_button(navigation_layout, 'OK', 1, 1, self._on_dpad_center, size=QSize(50, 50))
-        self.add_button(navigation_layout, '▶', 1, 2, self._on_dpad_right, size=QSize(50, 50))
-        self.add_button(navigation_layout, '▼', 2, 1, self._on_dpad_down, size=QSize(50, 50))
+        self.add_button(navigation_layout, '▲', 0, 1, self._on_dpad_up, size=QSize(40, 40))
+        self.add_button(navigation_layout, '◀', 1, 0, self._on_dpad_left, size=QSize(40, 40))
+        self.add_button(navigation_layout, 'OK', 1, 1, self._on_dpad_center, size=QSize(40, 40))
+        self.add_button(navigation_layout, '▶', 1, 2, self._on_dpad_right, size=QSize(40, 40))
+        self.add_button(navigation_layout, '▼', 2, 1, self._on_dpad_down, size=QSize(40, 40))
 
         main_layout.addLayout(grid_layout)
         main_layout.addLayout(navigation_layout)
@@ -176,8 +257,8 @@ class MainWindow(QWidget):
     def _main_window_configure(self):
         """Configure the main window properties."""
         self.setWindowTitle('Android TV Remote Control')
-        # Window sized to fit all controls with quick launchers
-        self.setFixedSize(600, 650)
+        # Compact window sized for remote control
+        self.setFixedSize(520, 700)
         self.setWindowIcon(QIcon('resources/icon32.ico'))
 
     def add_button(self, layout, label, row, col, handler, size=None):
@@ -288,7 +369,7 @@ class MainWindow(QWidget):
         asyncio.create_task(self._pair())
 
     async def _pair(self) -> None:
-        self.search_label.setText('Searching...')
+        self.search_label.setText('Scanning...')
         if self.is_connected:
             self.is_connected = False
             try:
@@ -297,44 +378,115 @@ class MainWindow(QWidget):
                 pass
 
         try:
-            addrs: list = await self.remote_control.find_android_tv()
+            addrs: list = await asyncio.wait_for(self.remote_control.find_android_tv(), timeout=10)
             if len(addrs) > 0:
-                self.search_label.setText(f'Found TV at {addrs[0]}')
+                tv_addr = addrs[0]
+                self.search_label.setText(f'Pairing {tv_addr}...')
+                _LOGGER.info('Found TV at %s', tv_addr)
 
                 try:
                     def get_pairing_code():
-                        code, ok = QInputDialog.getText(self, 'TV Remote Control', 'Enter the pairing code displayed on your TV:')
+                        code, ok = QInputDialog.getText(
+                            self, 
+                            'Pairing Code', 
+                            'Enter code from TV screen:',
+                            QInputDialog.Normal,
+                            ''
+                        )
                         if ok and code.strip():
                             return (code.strip(), True)
                         return ('', False)
                     
-                    await self.remote_control.pair(addrs[0], get_pairing_code)
+                    # Try to pair with timeout
+                    await asyncio.wait_for(
+                        self.remote_control.pair(tv_addr, get_pairing_code),
+                        timeout=30
+                    )
+                    
                     device_info = self.remote_control.device_info()
+                    if device_info:
+                        self.search_label.setText(f"✓ {device_info['manufacturer']}")
+                        self.is_connected = True
+                        device_name = f"{device_info.get('manufacturer', 'TV')} {device_info.get('model', '')}"
+                        history.update_history(device_name, tv_addr, False)
+                        self._refresh_device_lists()
+                        _LOGGER.info('Successfully paired with %s', tv_addr)
+                    else:
+                        self.search_label.setText('Pairing failed')
+                        
                 except asyncio.TimeoutError:
-                    self.search_label.setText('Pairing timeout - try again')
-                    _LOGGER.error('Pairing timeout')
-                    return
+                    self.search_label.setText('Pairing timeout')
+                    _LOGGER.error('Pairing timeout for %s', tv_addr)
                 except Exception as exc:
-                    self.search_label.setText('Pairing failed')
-                    _LOGGER.error('Pair Error: %s', exc)
-                    return
-
-                if device_info:
-                    self.search_label.setText(f"✓ {device_info['manufacturer']} {device_info['model']}")
-                    self.is_connected = True
-                    # Add newly paired device to history
-                    device_name = f"{device_info.get('manufacturer', 'Unknown')} {device_info.get('model', 'Device')}"
-                    history.update_history(device_name, addrs[0], False)
-                    self._refresh_device_lists()
+                    self.search_label.setText('Pairing error')
+                    _LOGGER.error('Pairing error: %s', exc)
             else:
-                self.search_label.setText('No TV found - check network')
+                self.search_label.setText('No TV found')
+                _LOGGER.warning('No Android TV found on network')
+                
+        except asyncio.TimeoutError:
+            self.search_label.setText('Search timeout')
+            _LOGGER.error('Search timeout')
         except Exception as exc:
-            self.search_label.setText('Connection error')
-            _LOGGER.error('Search Error: %s', exc)
+            self.search_label.setText('Search error')
+            _LOGGER.error('Search error: %s', exc)
 
     def _on_pair_new_device(self):
         """Handler for the 'Pair New Device' button."""
         asyncio.create_task(self._pair())
+    
+    def _on_manage_favorites(self):
+        """Open dialog to manage favorite apps."""
+        dialog = FavoritesDialog(self)
+        if dialog.exec_() == QDialog.Accepted:
+            selected = dialog.get_selected_apps()
+            self._update_favorite_apps(selected)
+    
+    def _update_favorite_apps(self, selected_apps):
+        """Update the displayed favorite apps based on user selection."""
+        # Clear existing buttons
+        while self.favorite_apps_layout.count():
+            child = self.favorite_apps_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+        self.favorite_apps.clear()
+        
+        # Create buttons for selected apps
+        for idx, (app_name, app_key) in enumerate(selected_apps):
+            btn = QPushButton(app_name)
+            btn.setFixedSize(75, 35)
+            btn.setStyleSheet('font-size: 10px;')
+            btn.clicked.connect(lambda checked, key=app_key: self._launch_app(key))
+            row = idx // 3
+            col = idx % 3
+            self.favorite_apps_layout.addWidget(btn, row, col)
+            self.favorite_apps[app_key] = btn
+    
+    def _launch_app(self, app_key):
+        """Launch an app by sending appropriate keycode."""
+        try:
+            if not self.is_connected:
+                self.search_label.setText('Not connected - pair first')
+                return
+            
+            # App launch keycodes
+            app_codes = {
+                'netflix': 'KEYCODE_NETFLIX',
+                'youtube': 'KEYCODE_YOUTUBE',
+                'prime': 'KEYCODE_PRIME_VIDEO',
+                'plex': 'KEYCODE_PLEX',
+                'settings': 'KEYCODE_SETTINGS',
+                'hbo': 'KEYCODE_HBO',
+                'disney': 'KEYCODE_DISNEY',
+                'hulu': 'KEYCODE_HULU',
+            }
+            
+            if app_key in app_codes:
+                self.remote_control.send_key(app_codes[app_key])
+                self.search_label.setText(f'Launching {app_key}...')
+        except Exception as exc:
+            _LOGGER.error('Launch app error: %s', exc)
+            self.search_label.setText('Error launching app')
 
     def _show_history_context_menu(self, position):
         """Show context menu for history items."""
@@ -353,30 +505,30 @@ class MainWindow(QWidget):
 
     def _on_favorite_selection_changed(self, current, previous):
         """Handle selection change in favorites list."""
-        self.favorite_button.setEnabled(current is not None)
+        pass
 
     def _on_history_selection_changed(self, current, previous):
         """Handle selection change in history list."""
-        self.favorite_button.setEnabled(current is not None)
+        pass
 
     def _on_toggle_favorite(self):
         """Toggle favorite status of selected device."""
-        # Toggle favorite for selected item in either list
-        item = self.favorites_list.currentItem() or self.history_list.currentItem()
-        if not item:
-            return
-        entry = item.data(1000)
-        new_fav = not entry.get('favorite', False)
-        history.set_favorite(entry['ip'], new_fav)
-        self._refresh_device_lists()
+        pass
 
     def _refresh_device_lists(self):
-        """Refresh favorite apps."""
+        """Refresh history list and favorite apps."""
+        self.history_list.clear()
+        for entry in history.get_history():
+            label = f"{entry['device_name']} ({entry['ip']})"
+            item = QListWidgetItem(label)
+            item.setData(1000, entry)
+            self.history_list.addItem(item)
+        
         # Create favorite app buttons for quick launching
         self._refresh_favorite_apps()
 
     def _refresh_favorite_apps(self):
-        """Create quick-launch buttons for common apps."""
+        """Create quick-launch buttons for default apps."""
         # Clear existing buttons
         while self.favorite_apps_layout.count():
             child = self.favorite_apps_layout.takeAt(0)
@@ -384,47 +536,22 @@ class MainWindow(QWidget):
                 child.widget().deleteLater()
         self.favorite_apps.clear()
         
-        # Common app shortcuts
-        common_apps = [
-            ('Netflix', self._launch_netflix),
-            ('YouTube', self._launch_youtube),
-            ('Prime', self._launch_prime),
-            ('Plex', self._launch_plex),
-            ('Settings', self._launch_settings),
+        # Default favorite apps
+        default_apps = [
+            ('Netflix', 'netflix'),
+            ('YouTube', 'youtube'),
+            ('Prime', 'prime'),
         ]
         
-        for idx, (app_name, handler) in enumerate(common_apps):
+        for idx, (app_name, app_key) in enumerate(default_apps):
             btn = QPushButton(app_name)
-            btn.setFixedSize(90, 45)
-            btn.clicked.connect(handler)
+            btn.setFixedSize(75, 35)
+            btn.setStyleSheet('font-size: 10px;')
+            btn.clicked.connect(lambda checked, key=app_key: self._launch_app(key))
             row = idx // 3
             col = idx % 3
             self.favorite_apps_layout.addWidget(btn, row, col)
-    
-    @connection_check
-    def _launch_netflix(self):
-        """Launch Netflix app."""
-        self.remote_control.send_key('KEYCODE_COMPONENT1')
-        
-    @connection_check
-    def _launch_youtube(self):
-        """Launch YouTube app."""
-        self.remote_control.send_key('KEYCODE_COMPONENT2')
-        
-    @connection_check
-    def _launch_prime(self):
-        """Launch Prime Video app."""
-        self.remote_control.send_key('KEYCODE_COMPONENT3')
-        
-    @connection_check
-    def _launch_plex(self):
-        """Launch Plex app."""
-        self.remote_control.send_key('KEYCODE_COMPONENT4')
-        
-    @connection_check
-    def _launch_settings(self):
-        """Launch Settings app."""
-        self.remote_control.send_key('KEYCODE_SETTINGS')
+            self.favorite_apps[app_key] = btn
 
     async def _connect_to_history_device(self, entry):
         """Connect to a device from history or favorites."""
