@@ -1,20 +1,20 @@
 [
   {
-    "device_name": "Living Room TV",
-    "ip": "192.168.1.100",
-    "last_connected": "2025-10-21T05:28:22.041134",
-    "favorite": true
-  },
-  {
     "device_name": "Kitchen TV",
     "ip": "192.168.1.102",
-    "last_connected": "2025-10-21T05:27:53.710596",
+    "last_connected": "2025-10-21T05:33:15.169223",
     "favorite": false
   },
   {
     "device_name": "Bedroom TV",
     "ip": "192.168.1.101",
-    "last_connected": "2025-10-21T05:27:53.710305",
+    "last_connected": "2025-10-21T05:33:15.168920",
     "favorite": false
+  },
+  {
+    "device_name": "Living Room TV",
+    "ip": "192.168.1.100",
+    "last_connected": "2025-10-21T05:33:15.168407",
+    "favorite": true
   }
 ]

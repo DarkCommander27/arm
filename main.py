@@ -482,7 +482,7 @@ class MainWindow(QWidget):
             }
             
             if app_key in app_codes:
-                self.remote_control.send_key(app_codes[app_key])
+                self.remote_control.send_key_command(app_codes[app_key])
                 self.search_label.setText(f'Launching {app_key}...')
         except Exception as exc:
             _LOGGER.error('Launch app error: %s', exc)

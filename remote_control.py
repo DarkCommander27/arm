@@ -57,32 +57,75 @@ class RemoteControl:
             host,
         )
 
-        if await self.remote.async_generate_cert_if_missing():
-            _LOGGER.info('Generated new certificate')
-            await self._pair(callback)
-
-        while True:
-            try:
-                await self.remote.async_connect()
-                break
-            except InvalidAuth as exc:
-                _LOGGER.error('Need to pair again. Error: %s', exc)
-                await self._pair(callback)
-            except (CannotConnect, ConnectionClosed) as exc:
-                _LOGGER.error('Cannot connect, exiting. Error: %s', exc)
-                return
-
-        self.remote.keep_reconnecting()
-
-        _LOGGER.info('device_info: %s', self.remote.device_info)
-        _LOGGER.info('is_on: %s', self.remote.is_on)
-        _LOGGER.info('current_app: %s', self.remote.current_app)
-        _LOGGER.info('volume_info: %s', self.remote.volume_info)
-
-        self.remote.add_is_on_updated_callback(self._is_on_updated)
-        self.remote.add_current_app_updated_callback(self._current_app_updated)
-        self.remote.add_volume_info_updated_callback(self._volume_info_updated)
-        self.remote.add_is_available_updated_callback(self._is_available_updated)
+        try:
+            # Generate certificate if needed
+            if await self.remote.async_generate_cert_if_missing():
+                _LOGGER.info('Generated new certificate')
+            
+            # Start pairing process
+            _LOGGER.info('Starting pairing process with %s', host)
+            await self.remote.async_start_pairing()
+            _LOGGER.info('Pairing started, waiting for code...')
+            
+            # Get pairing code from user
+            max_attempts = 3
+            for attempt in range(max_attempts):
+                try:
+                    pairing_code, done = callback()
+                    if not done:
+                        _LOGGER.warning('Pairing cancelled by user')
+                        self.remote.disconnect()
+                        raise RuntimeError('Pairing cancelled by user')
+                    
+                    _LOGGER.info('Finishing pairing with code: %s***', pairing_code[:2] if pairing_code else '')
+                    await self.remote.async_finish_pairing(pairing_code)
+                    _LOGGER.info('Pairing successful')
+                    break
+                    
+                except InvalidAuth as exc:
+                    _LOGGER.error('Invalid pairing code (attempt %d/%d): %s', attempt + 1, max_attempts, exc)
+                    if attempt == max_attempts - 1:
+                        raise
+                    continue
+                except Exception as exc:
+                    _LOGGER.error('Pairing error: %s', exc)
+                    raise
+            
+            # Now try to connect
+            _LOGGER.info('Attempting to connect to %s', host)
+            max_retries = 3
+            for retry in range(max_retries):
+                try:
+                    await self.remote.async_connect()
+                    _LOGGER.info('Successfully connected to %s', host)
+                    break
+                except InvalidAuth as exc:
+                    _LOGGER.error('Auth error, need to pair again (retry %d/%d): %s', retry + 1, max_retries, exc)
+                    if retry == max_retries - 1:
+                        raise
+                    await asyncio.sleep(1)
+                except (CannotConnect, ConnectionClosed) as exc:
+                    _LOGGER.error('Connection error (retry %d/%d): %s', retry + 1, max_retries, exc)
+                    if retry == max_retries - 1:
+                        raise
+                    await asyncio.sleep(2)
+            
+            # Start keep-alive
+            self.remote.keep_reconnecting()
+            
+            # Log device info
+            _LOGGER.info('Device connected. Info: %s', self.remote.device_info)
+            _LOGGER.info('Power state: %s', self.remote.is_on)
+            
+            # Add callbacks
+            self.remote.add_is_on_updated_callback(self._is_on_updated)
+            self.remote.add_current_app_updated_callback(self._current_app_updated)
+            self.remote.add_volume_info_updated_callback(self._volume_info_updated)
+            self.remote.add_is_available_updated_callback(self._is_available_updated)
+            
+        except Exception as exc:
+            _LOGGER.error('Fatal pairing/connection error: %s', exc)
+            raise
 
     def power(self) -> None:
         self.remote.send_key_command(self.POWER)
@@ -133,6 +176,8 @@ class RemoteControl:
         self.remote.disconnect()
 
     async def _pair(self, callback: Callable) -> None:
+        """Legacy pairing method - kept for compatibility."""
+        _LOGGER.info('Using legacy pairing method')
         await self.remote.async_start_pairing()
         while True:
             pairing_code, done = callback()
@@ -146,7 +191,7 @@ class RemoteControl:
                 _LOGGER.error('Invalid pairing code. Error: %s', exc)
                 continue
             except ConnectionClosed as exc:
-                _LOGGER.error('Initialize pair again. Error: %s', exc)
+                _LOGGER.error('Connection closed during pairing. Error: %s', exc)
                 return await self._pair(callback)
 
     def _async_on_service_state_change(
