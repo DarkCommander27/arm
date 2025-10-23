@@ -500,27 +500,30 @@ class MainWindow(QWidget):
                 self.search_label.setText('No TV found')
                 _LOGGER.error('No TV address found')
                 return
-                
             self.search_label.setText(f'Pairing {tv_addr}...')
 
             try:
                 def get_pairing_code():
+                    _LOGGER.info('Showing pairing code input dialog')
                     code, ok = QInputDialog.getText(
                         self, 
                         'Pairing Code', 
-                        'Enter code from TV screen:',
+                        'Enter the code shown on your TV screen:',
                         QInputDialog.Normal,
                         ''
                     )
+                    _LOGGER.info('User dialog result: ok=%s, code_len=%d', ok, len(code) if code else 0)
                     if ok and code.strip():
                         return (code.strip(), True)
                     return ('', False)
                 
                 # Try to pair with timeout
+                _LOGGER.info('Starting pair with timeout=30s')
                 await asyncio.wait_for(
                     self.remote_control.pair(tv_addr, get_pairing_code),
                     timeout=30
                 )
+                _LOGGER.info('Pairing completed successfully')
                 
                 device_info = self.remote_control.device_info()
                 if device_info:
@@ -534,8 +537,11 @@ class MainWindow(QWidget):
                     self.search_label.setText('Pairing failed')
                     
             except asyncio.TimeoutError:
-                self.search_label.setText('Pairing timeout')
+                self.search_label.setText('Pairing timeout (30s)')
                 _LOGGER.error('Pairing timeout for %s', tv_addr)
+            except RuntimeError as exc:
+                self.search_label.setText(f'Pairing cancelled: {exc}')
+                _LOGGER.warning('Pairing cancelled: %s', exc)
             except Exception as exc:
                 self.search_label.setText('Pairing error')
                 _LOGGER.error('Pairing error: %s', exc)

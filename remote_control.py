@@ -87,22 +87,21 @@ class RemoteControl:
             if await self.remote.async_generate_cert_if_missing():
                 _LOGGER.info('Generated new certificate')
             
-            # Start pairing process
+            # Get pairing code BEFORE starting pairing (allow dialog to appear)
+            _LOGGER.info('Prompting user for pairing code')
+            pairing_code, done = callback()
+            if not done:
+                _LOGGER.warning('Pairing cancelled by user')
+                raise RuntimeError('Pairing cancelled by user')
+            
             _LOGGER.info('Starting pairing process with %s', host)
             await self.remote.async_start_pairing()
-            _LOGGER.info('Pairing started, waiting for code...')
+            _LOGGER.info('Pairing started, finishing with code: %s***', pairing_code[:2] if pairing_code else '')
             
-            # Get pairing code from user
+            # Try to finish pairing with retries for invalid code
             max_attempts = 3
             for attempt in range(max_attempts):
                 try:
-                    pairing_code, done = callback()
-                    if not done:
-                        _LOGGER.warning('Pairing cancelled by user')
-                        self.remote.disconnect()
-                        raise RuntimeError('Pairing cancelled by user')
-                    
-                    _LOGGER.info('Finishing pairing with code: %s***', pairing_code[:2] if pairing_code else '')
                     await self.remote.async_finish_pairing(pairing_code)
                     _LOGGER.info('Pairing successful')
                     break
@@ -111,7 +110,10 @@ class RemoteControl:
                     _LOGGER.error('Invalid pairing code (attempt %d/%d): %s', attempt + 1, max_attempts, exc)
                     if attempt == max_attempts - 1:
                         raise
-                    continue
+                    # Ask for code again on invalid auth
+                    pairing_code, done = callback()
+                    if not done:
+                        raise RuntimeError('Pairing cancelled by user')
                 except Exception as exc:
                     _LOGGER.error('Pairing error: %s', exc)
                     raise
