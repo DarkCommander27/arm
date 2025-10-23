@@ -76,61 +76,24 @@ class MainWindow(QWidget):
         search_button.clicked.connect(self._on_search)
         top_layout.addWidget(search_button)
 
-        # Favorites and History lists
-        self.favorites_list = QListWidget()
-        self.favorites_list.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.favorites_list.itemDoubleClicked.connect(self._on_favorite_item_double_clicked)
-        self.favorites_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.favorites_list.customContextMenuRequested.connect(self._show_history_context_menu)
-        self.favorites_list.currentItemChanged.connect(self._on_favorite_selection_changed)
-        self.favorites_list.setMinimumHeight(60)
-        self.favorites_list.setMaximumHeight(80)
-
         # Favorite apps grid layout for quick access
         self.favorite_apps_layout = QGridLayout()
         self.favorite_apps_layout.setSpacing(5)
         self.favorite_apps = {}  # Dictionary to store favorite app buttons
 
-        self.history_list = QListWidget()
-        self.history_list.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.history_list.itemDoubleClicked.connect(self._on_history_item_double_clicked)
-        self.history_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.history_list.customContextMenuRequested.connect(self._show_history_context_menu)
-        self.history_list.currentItemChanged.connect(self._on_history_selection_changed)
-        self.history_list.setMinimumHeight(80)
-        self.history_list.setMaximumHeight(120)
-
         self._refresh_device_lists()
 
-        # Button to toggle favorite
-        self.favorite_button = QPushButton('Toggle Favorite')
-        self.favorite_button.setFixedSize(160, 45)
-        self.favorite_button.clicked.connect(self._on_toggle_favorite)
-        self.favorite_button.setEnabled(False)
-
         main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(10, 10, 10, 10)  # Further reduced margins
-        main_layout.setSpacing(6)  # Further reduced spacing
+        main_layout.setContentsMargins(10, 10, 10, 10)  # Reduced margins
+        main_layout.setSpacing(4)  # Reduced spacing
 
         main_layout.addLayout(top_layout)
 
-        # Section: Favorite Devices (quick access)
-        devices_label = QLabel('Favorite Devices')
-        devices_label.setStyleSheet('font-weight: bold; font-size: 14px; color: #FFD700;')
-        main_layout.addWidget(devices_label)
-        main_layout.addWidget(self.favorites_list)
-
         # Section: Quick App Launchers
-        apps_label = QLabel('Quick App Launchers')
-        apps_label.setStyleSheet('font-weight: bold; font-size: 14px; color: #87CEEB;')
+        apps_label = QLabel('Quick Launch')
+        apps_label.setStyleSheet('font-weight: bold; font-size: 12px; color: #87CEEB;')
         main_layout.addWidget(apps_label)
         main_layout.addLayout(self.favorite_apps_layout)
-
-        # Section: History
-        history_label = QLabel('History')
-        history_label.setStyleSheet('font-weight: bold; font-size: 12px; color: #90EE90;')
-        main_layout.addWidget(history_label)
-        main_layout.addWidget(self.history_list)
 
         grid_layout = QGridLayout()
         grid_layout.setSpacing(4)  # Reduced spacing further
@@ -213,8 +176,8 @@ class MainWindow(QWidget):
     def _main_window_configure(self):
         """Configure the main window properties."""
         self.setWindowTitle('Android TV Remote Control')
-        # Increased window height to accommodate all buttons and favorites
-        self.setFixedSize(600, 1050)
+        # Window sized to fit all controls with quick launchers
+        self.setFixedSize(600, 650)
         self.setWindowIcon(QIcon('resources/icon32.ico'))
 
     def add_button(self, layout, label, row, col, handler, size=None):
@@ -408,21 +371,7 @@ class MainWindow(QWidget):
         self._refresh_device_lists()
 
     def _refresh_device_lists(self):
-        """Refresh both favorites and history lists."""
-        self.favorites_list.clear()
-        self.history_list.clear()
-        for entry in history.get_favorites():
-            label = f"★ {entry['device_name']} ({entry['ip']})"
-            item = QListWidgetItem(label)
-            item.setData(1000, entry)
-            self.favorites_list.addItem(item)
-        for entry in history.get_history():
-            if not entry.get('favorite'):
-                label = f"{entry['device_name']} ({entry['ip']})"
-                item = QListWidgetItem(label)
-                item.setData(1000, entry)
-                self.history_list.addItem(item)
-        
+        """Refresh favorite apps."""
         # Create favorite app buttons for quick launching
         self._refresh_favorite_apps()
 
