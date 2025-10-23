@@ -142,29 +142,53 @@ class NetworkScanDialog(QDialog):
         self.setLayout(layout)
     
     async def start_scan(self):
-        """Start the network scan."""
-        self.status_label.setText('Scanning... (this may take 30-60 seconds)')
+        """Start the network scan with both mDNS and port scanning."""
+        self.status_label.setText('Scanning for devices...')
         self.results_list.clear()
+        discovered_ips = set()
         
         try:
-            subnet_ips = get_subnet_ips(num_hosts=100)
-            if not subnet_ips:
-                self.status_label.setText('Failed to determine subnet')
-                return
+            # First, try mDNS discovery (faster if devices respond)
+            self.status_label.setText('Searching via mDNS (5s)...')
+            _LOGGER.info('Starting mDNS discovery')
             
-            self.status_label.setText(f'Scanning {len(subnet_ips)} hosts...')
-            results = await network_scan(subnet_ips, timeout=0.5)
+            # Create a temporary RemoteControl to use its discovery
+            temp_rc = RemoteControl()
+            mdns_results = await asyncio.wait_for(temp_rc.find_android_tv(), timeout=6)
             
-            if results:
-                for ip, ports in results:
-                    item_text = f'{ip} (ports: {", ".join(map(str, ports))})'
-                    self.results_list.addItem(item_text)
-                self.status_label.setText(f'Found {len(results)} device(s)')
+            if mdns_results:
+                _LOGGER.info('mDNS found: %s', mdns_results)
+                for ip in mdns_results:
+                    discovered_ips.add(ip)
+                    self.results_list.addItem(f'{ip} (mDNS)')
+                self.status_label.setText(f'Found {len(discovered_ips)} via mDNS')
             else:
-                self.status_label.setText('No devices found. Try manual IP entry.')
+                _LOGGER.info('mDNS discovery found nothing, trying port scan...')
+                
+                # Fall back to port scanning
+                subnet_ips = get_subnet_ips(num_hosts=100)
+                if not subnet_ips:
+                    self.status_label.setText('Failed to determine subnet')
+                    return
+                
+                self.status_label.setText(f'Port scanning {len(subnet_ips)} hosts (30-60s)...')
+                results = await network_scan(subnet_ips, timeout=0.5)
+                
+                if results:
+                    for ip, ports in results:
+                        discovered_ips.add(ip)
+                        item_text = f'{ip} (ports: {", ".join(map(str, ports))})'
+                        self.results_list.addItem(item_text)
+                    self.status_label.setText(f'Found {len(discovered_ips)} device(s)')
+                else:
+                    self.status_label.setText('No devices found. Enter IP manually or check network.')
+                    
+        except asyncio.TimeoutError:
+            self.status_label.setText('Scan timeout. Try manual IP entry.')
+            _LOGGER.warning('Scan timeout')
         except Exception as exc:
             _LOGGER.error('Network scan error: %s', exc)
-            self.status_label.setText(f'Scan error: {exc}')
+            self.status_label.setText(f'Scan error: {str(exc)[:40]}')
     
     def _on_rescan(self):
         """Rescan button clicked."""

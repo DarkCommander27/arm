@@ -228,8 +228,10 @@ class RemoteControl:
         name: str,
         state_change: ServiceStateChange,
     ) -> None:
+        _LOGGER.debug('Service state change: type=%s, name=%s, state=%s', service_type, name, state_change)
         if state_change is not ServiceStateChange.Added:
             return
+        _LOGGER.info('New service found: %s.%s', name, service_type)
         asyncio.ensure_future(self._async_display_service_info(zeroconf, service_type, name))
 
     async def _async_display_service_info(self, zeroconf: Zeroconf, service_type: str, name: str) -> None:
@@ -237,7 +239,11 @@ class RemoteControl:
         await info.async_request(zeroconf, 2000)
 
         if info:
-            self.found_addresses.extend(info.parsed_scoped_addresses(IPVersion.V4Only))
+            addresses = info.parsed_scoped_addresses(IPVersion.V4Only)
+            _LOGGER.info('Service info retrieved for %s: addresses=%s', name, addresses)
+            self.found_addresses.extend(addresses)
+        else:
+            _LOGGER.warning('Failed to retrieve service info for %s', name)
 
     def _is_on_updated(self, is_on: bool) -> None:
         _LOGGER.info('Notified that is_on: %s', is_on)
