@@ -36,17 +36,42 @@ class RemoteControl:
         self.remote: AndroidTVRemote | None = None
 
     async def find_android_tv(self) -> list:
+        """Discover Android TV devices using mDNS.
+
+        Returns a list of IPv4 addresses of discovered devices.
+        The method will perform a short browse and return whatever it finds.
+        """
         self.found_addresses = []
 
+        # Try a slightly longer default timeout and search multiple service types
+        timeout_seconds = 8
+
         zc = AsyncZeroconf()
-        services = ['_androidtvremote2._tcp.local.']
-        browser = AsyncServiceBrowser(zc.zeroconf, services, handlers=[self._async_on_service_state_change])
+        # Primary service for androidtvremote2, fallback to common cast service
+        services = ['_androidtvremote2._tcp.local.', '_googlecast._tcp.local.']
 
-        await asyncio.sleep(5)
+        _LOGGER.debug('Starting mDNS discovery for services: %s (timeout=%ds)', services, timeout_seconds)
 
-        await browser.async_cancel()
-        await zc.async_close()
+        # Register browser for all service types
+        browsers = [AsyncServiceBrowser(zc.zeroconf, [svc], handlers=[self._async_on_service_state_change]) for svc in services]
 
+        # Wait for responses
+        await asyncio.sleep(timeout_seconds)
+
+        # Cancel browsers and close zeroconf
+        for b in browsers:
+            try:
+                await b.async_cancel()
+            except Exception:
+                # Some versions may not require explicit cancel
+                pass
+
+        try:
+            await zc.async_close()
+        except Exception:
+            pass
+
+        _LOGGER.debug('Discovery complete, found addresses: %s', self.found_addresses)
         return self.found_addresses
 
     async def pair(self, host: str, callback: Callable):

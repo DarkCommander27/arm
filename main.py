@@ -15,6 +15,7 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QInputDialog,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMenu,
@@ -25,10 +26,11 @@ from PyQt5.QtWidgets import (
     QCheckBox,
     QScrollArea,
 )
-from qasync import QEventLoop
+from qasync import QEventLoop, asyncSlot
 
 from remote_control import RemoteControl
 import history
+from network_diag import network_scan, get_subnet_ips
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -91,6 +93,103 @@ class FavoritesDialog(QDialog):
         return selected
 
 
+class NetworkScanDialog(QDialog):
+    """Dialog for network scanning to find Android TV devices."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle('Network Scan')
+        self.setFixedSize(400, 350)
+        self.selected_ip = None
+        
+        layout = QVBoxLayout()
+        layout.setContentsMargins(10, 10, 10, 10)
+        
+        # Instructions
+        info_label = QLabel('Scanning local network for Android TV devices...')
+        layout.addWidget(info_label)
+        
+        # Results list
+        self.results_list = QListWidget()
+        self.results_list.setSelectionMode(QAbstractItemView.SingleSelection)
+        layout.addWidget(self.results_list)
+        
+        # Manual IP input section
+        manual_layout = QHBoxLayout()
+        manual_layout.addWidget(QLabel('Or enter IP manually:'))
+        self.ip_input = QLineEdit()
+        self.ip_input.setPlaceholderText('e.g., 192.168.1.100')
+        manual_layout.addWidget(self.ip_input)
+        layout.addLayout(manual_layout)
+        
+        # Status label
+        self.status_label = QLabel('')
+        self.status_label.setStyleSheet('color: #87CEEB; font-size: 10px;')
+        layout.addWidget(self.status_label)
+        
+        # Buttons
+        button_layout = QHBoxLayout()
+        use_btn = QPushButton('Use Selected / Manual IP')
+        use_btn.clicked.connect(self._on_use_ip)
+        scan_btn = QPushButton('Rescan')
+        scan_btn.clicked.connect(self._on_rescan)
+        cancel_btn = QPushButton('Cancel')
+        cancel_btn.clicked.connect(self.reject)
+        button_layout.addWidget(scan_btn)
+        button_layout.addWidget(use_btn)
+        button_layout.addWidget(cancel_btn)
+        layout.addLayout(button_layout)
+        
+        self.setLayout(layout)
+    
+    async def start_scan(self):
+        """Start the network scan."""
+        self.status_label.setText('Scanning... (this may take 30-60 seconds)')
+        self.results_list.clear()
+        
+        try:
+            subnet_ips = get_subnet_ips(num_hosts=100)
+            if not subnet_ips:
+                self.status_label.setText('Failed to determine subnet')
+                return
+            
+            self.status_label.setText(f'Scanning {len(subnet_ips)} hosts...')
+            results = await network_scan(subnet_ips, timeout=0.5)
+            
+            if results:
+                for ip, ports in results:
+                    item_text = f'{ip} (ports: {", ".join(map(str, ports))})'
+                    self.results_list.addItem(item_text)
+                self.status_label.setText(f'Found {len(results)} device(s)')
+            else:
+                self.status_label.setText('No devices found. Try manual IP entry.')
+        except Exception as exc:
+            _LOGGER.error('Network scan error: %s', exc)
+            self.status_label.setText(f'Scan error: {exc}')
+    
+    def _on_rescan(self):
+        """Rescan button clicked."""
+        # Use asyncSlot to run async function from sync button click
+        asyncio.create_task(self.start_scan())
+    
+    def _on_use_ip(self):
+        """Use selected IP or manual entry."""
+        # Check manual input first
+        manual_ip = self.ip_input.text().strip()
+        if manual_ip:
+            self.selected_ip = manual_ip
+            self.accept()
+            return
+        
+        # Check list selection
+        if self.results_list.currentItem():
+            # Extract IP from item text (format: "192.168.1.100 (ports: ...)")
+            item_text = self.results_list.currentItem().text()
+            self.selected_ip = item_text.split(' ')[0]
+            self.accept()
+        else:
+            self.status_label.setText('Please select an IP or enter manually')
+
+
 def connection_check(func):
     @functools.wraps(func)
     def wrapper(self):
@@ -136,6 +235,13 @@ class MainWindow(QWidget):
         search_button.setToolTip('Rescan for devices')
         search_button.clicked.connect(self._on_search)
         top_layout.addWidget(search_button)
+
+        # Network scan button
+        network_btn = QPushButton('🌐')
+        network_btn.setFixedSize(40, 40)
+        network_btn.setToolTip('Network scan to find TV')
+        network_btn.clicked.connect(self._on_network_scan)
+        top_layout.addWidget(network_btn)
 
         # Manage favorites button
         manage_fav_btn = QPushButton('⭐')
@@ -368,7 +474,7 @@ class MainWindow(QWidget):
     def _on_search(self) -> None:
         asyncio.create_task(self._pair())
 
-    async def _pair(self) -> None:
+    async def _pair(self, host: str | None = None) -> None:
         self.search_label.setText('Scanning...')
         if self.is_connected:
             self.is_connected = False
@@ -378,52 +484,62 @@ class MainWindow(QWidget):
                 pass
 
         try:
-            addrs: list = await asyncio.wait_for(self.remote_control.find_android_tv(), timeout=10)
-            if len(addrs) > 0:
-                tv_addr = addrs[0]
-                self.search_label.setText(f'Pairing {tv_addr}...')
-                _LOGGER.info('Found TV at %s', tv_addr)
-
-                try:
-                    def get_pairing_code():
-                        code, ok = QInputDialog.getText(
-                            self, 
-                            'Pairing Code', 
-                            'Enter code from TV screen:',
-                            QInputDialog.Normal,
-                            ''
-                        )
-                        if ok and code.strip():
-                            return (code.strip(), True)
-                        return ('', False)
-                    
-                    # Try to pair with timeout
-                    await asyncio.wait_for(
-                        self.remote_control.pair(tv_addr, get_pairing_code),
-                        timeout=30
-                    )
-                    
-                    device_info = self.remote_control.device_info()
-                    if device_info:
-                        self.search_label.setText(f"✓ {device_info['manufacturer']}")
-                        self.is_connected = True
-                        device_name = f"{device_info.get('manufacturer', 'TV')} {device_info.get('model', '')}"
-                        history.update_history(device_name, tv_addr, False)
-                        self._refresh_device_lists()
-                        _LOGGER.info('Successfully paired with %s', tv_addr)
-                    else:
-                        self.search_label.setText('Pairing failed')
-                        
-                except asyncio.TimeoutError:
-                    self.search_label.setText('Pairing timeout')
-                    _LOGGER.error('Pairing timeout for %s', tv_addr)
-                except Exception as exc:
-                    self.search_label.setText('Pairing error')
-                    _LOGGER.error('Pairing error: %s', exc)
+            # Use provided host or discover via mDNS
+            if host:
+                tv_addr = host
+                _LOGGER.info('Using provided host: %s', tv_addr)
             else:
+                addrs: list = await asyncio.wait_for(self.remote_control.find_android_tv(), timeout=10)
+                if len(addrs) > 0:
+                    tv_addr = addrs[0]
+                    _LOGGER.info('Found TV at %s', tv_addr)
+                else:
+                    tv_addr = None
+            
+            if not tv_addr:
                 self.search_label.setText('No TV found')
-                _LOGGER.warning('No Android TV found on network')
+                _LOGGER.error('No TV address found')
+                return
                 
+            self.search_label.setText(f'Pairing {tv_addr}...')
+
+            try:
+                def get_pairing_code():
+                    code, ok = QInputDialog.getText(
+                        self, 
+                        'Pairing Code', 
+                        'Enter code from TV screen:',
+                        QInputDialog.Normal,
+                        ''
+                    )
+                    if ok and code.strip():
+                        return (code.strip(), True)
+                    return ('', False)
+                
+                # Try to pair with timeout
+                await asyncio.wait_for(
+                    self.remote_control.pair(tv_addr, get_pairing_code),
+                    timeout=30
+                )
+                
+                device_info = self.remote_control.device_info()
+                if device_info:
+                    self.search_label.setText(f"✓ {device_info['manufacturer']}")
+                    self.is_connected = True
+                    device_name = f"{device_info.get('manufacturer', 'TV')} {device_info.get('model', '')}"
+                    history.update_history(device_name, tv_addr, False)
+                    self._refresh_device_lists()
+                    _LOGGER.info('Successfully paired with %s', tv_addr)
+                else:
+                    self.search_label.setText('Pairing failed')
+                    
+            except asyncio.TimeoutError:
+                self.search_label.setText('Pairing timeout')
+                _LOGGER.error('Pairing timeout for %s', tv_addr)
+            except Exception as exc:
+                self.search_label.setText('Pairing error')
+                _LOGGER.error('Pairing error: %s', exc)
+                    
         except asyncio.TimeoutError:
             self.search_label.setText('Search timeout')
             _LOGGER.error('Search timeout')
@@ -441,6 +557,16 @@ class MainWindow(QWidget):
         if dialog.exec_() == QDialog.Accepted:
             selected = dialog.get_selected_apps()
             self._update_favorite_apps(selected)
+    
+    def _on_network_scan(self):
+        """Open network scan dialog to find Android TV devices."""
+        dialog = NetworkScanDialog(self)
+        # Start scan in background
+        asyncio.create_task(dialog.start_scan())
+        if dialog.exec_() == QDialog.Accepted and dialog.selected_ip:
+            _LOGGER.info('User selected IP: %s', dialog.selected_ip)
+            # Pair with the selected IP
+            asyncio.create_task(self._pair(host=dialog.selected_ip))
     
     def _update_favorite_apps(self, selected_apps):
         """Update the displayed favorite apps based on user selection."""
