@@ -528,18 +528,16 @@ class MainWindow(QWidget):
 
             try:
                 def get_pairing_code():
-                    _LOGGER.info('Showing pairing code input dialog')
-                    code, ok = QInputDialog.getText(
-                        self, 
-                        'Pairing Code', 
-                        'Enter the code shown on your TV screen:',
-                        QInputDialog.Normal,
-                        ''
-                    )
-                    _LOGGER.info('User dialog result: ok=%s, code_len=%d', ok, len(code) if code else 0)
-                    if ok and code.strip():
-                        return (code.strip(), True)
-                    return ('', False)
+                 _LOGGER.info('Showing pairing code input dialog')
+                 code, ok = QInputDialog.getText(
+                     self, 
+                    'Pairing Code', 
+                    'Enter the code shown on your TV screen:'
+              )
+                 _LOGGER.info('User dialog result: ok=%s, code_len=%d', ok, len(code) if code else 0)
+               if ok and code.strip():
+                   return (code.strip(), True)
+               return ('', False)
                 
                 # Try to pair with timeout
                 _LOGGER.info('Starting pair with timeout=30s')
