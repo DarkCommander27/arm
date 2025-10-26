@@ -1,0 +1,5 @@
+androidtvremote2
+PyQt5
+qasync
+zeroconf
+PyInstaller
