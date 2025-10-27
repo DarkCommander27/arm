@@ -23,67 +23,51 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
-      - name: Run PyInstaller
+      - name: Run PyInstaller with app.spec
         run: |
-          python -m PyInstaller app.spec
+          python -m PyInstaller app.spec --clean --noconfirm
+        shell: cmd
 
-      - name: Install NSIS
+      - name: Verify build
         run: |
-          choco install nsis -y
-          # Make sure we can find the NSIS executable
-          $NsisPath = "C:\Program Files (x86)\NSIS"
-          Write-Host "Adding NSIS to PATH: $NsisPath"
-          echo "$NsisPath" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          # Wait for path update
-          Start-Sleep -Seconds 5
-
-      - name: Build NSIS installer
-        run: |
-          $Version = (Get-Content -Path "${{ github.workspace }}\version.txt").Trim()
-          Write-Host "Building installer for version $Version"
-          $ProjectDir = "${{ github.workspace }}"
-          $MakensisPath = "C:\Program Files (x86)\NSIS\makensis.exe"
-          
-          # Check if makensis exists
-          if (Test-Path $MakensisPath) {
-              Write-Host "Found makensis at: $MakensisPath"
-              # NSIS define parameters use /D not /X
-              & "$MakensisPath" "/DPROJECT_DIR=$ProjectDir" "/DVERSION=$Version" "$ProjectDir\installer\nsis\installer.nsi"
+          if (Test-Path "dist\android-tv-remote.exe") {
+              Write-Host "Build successful: android-tv-remote.exe created"
+              Get-Item "dist\android-tv-remote.exe" | Format-List Name, Length, LastWriteTime
           } else {
-              Write-Host "Error: makensis not found at expected path"
-              Write-Host "Searching for makensis..."
-              Get-ChildItem -Path "C:\Program Files (x86)" -Recurse -Filter "makensis.exe" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "Found at: $($_.FullName)" }
+              Write-Host "Build failed: executable not found"
+              Get-ChildItem "dist" -ErrorAction SilentlyContinue | Format-Table
               exit 1
           }
         shell: pwsh
 
-      - name: Prepare artifacts
+      - name: Create portable package
         run: |
-          $Version = (Get-Content -Path "${{ github.workspace }}\version.txt").Trim()
-          Write-Host "Version: $Version"
-          Write-Host "Installer: AndroidTVRemote-$Version-Installer.exe"
+          $Version = (Get-Content -Path "version.txt").Trim()
+          Write-Host "Creating portable package for version $Version"
           
-          # Check if installer exists and rename for clarity in artifacts list
-          if (Test-Path "AndroidTVRemote-$Version-Installer.exe") {
-            Copy-Item -Path "AndroidTVRemote-$Version-Installer.exe" -Destination "AndroidTVRemote-Installer.exe" -Force
-            Write-Host "Installer found and renamed for clarity in artifacts"
-          } else {
-            Write-Host "Warning: Installer not found at expected path"
-          }
+          $PackageDir = "AndroidTVRemote-$Version-Windows"
+          New-Item -ItemType Directory -Path $PackageDir -Force
+          
+          Copy-Item -Path "dist\android-tv-remote.exe" -Destination "$PackageDir\AndroidTVRemote.exe"
+          Copy-Item -Path "README.md" -Destination "$PackageDir\" -ErrorAction SilentlyContinue
+          Copy-Item -Path "BLUETOOTH.md" -Destination "$PackageDir\" -ErrorAction SilentlyContinue
+          Copy-Item -Path "LICENSE" -Destination "$PackageDir\" -ErrorAction SilentlyContinue
+          
+          "AndroidTVRemote.exe" | Out-File -FilePath "$PackageDir\run.bat" -Encoding ascii
+          "Android TV Remote Control (Bluetooth) - Windows Package" | Out-File -FilePath "$PackageDir\README.txt" -Encoding utf8
+          
+          Compress-Archive -Path $PackageDir -DestinationPath "$PackageDir.zip" -Force
+          Write-Host "Package created: $PackageDir.zip"
         shell: pwsh
         
-      - name: Upload app build
+      - name: Upload executable
         uses: actions/upload-artifact@v4
         with:
-          name: app-build
-          path: dist/AndroidTVRemote/**
+          name: windows-executable
+          path: dist/android-tv-remote.exe
           
-      - name: Upload installer (if exists)
+      - name: Upload portable package
         uses: actions/upload-artifact@v4
-        if: ${{ success() }}
-        continue-on-error: true
         with:
-          name: installer
-          path: |
-            AndroidTVRemote-*-Installer.exe
-            AndroidTVRemote-Installer.exe
+          name: windows-portable-package
+          path: AndroidTVRemote-*-Windows.zip
