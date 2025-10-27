@@ -1,8 +1,14 @@
 [
   {
+    "device_name": "[BT] Test Device",
+    "ip": "AA:BB:CC:DD:EE:FF",
+    "last_connected": "2025-10-27T17:53:27.207751",
+    "favorite": false
+  },
+  {
     "device_name": "Test Device",
     "ip": "192.168.1.100",
-    "last_connected": "2025-10-23T13:39:18.425672",
+    "last_connected": "2025-10-27T17:43:02.612229",
     "favorite": true
   },
   {

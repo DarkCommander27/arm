@@ -28,9 +28,9 @@ from PyQt5.QtWidgets import (
 )
 from qasync import QEventLoop, asyncSlot
 
-from remote_control import RemoteControl
 import history
-from network_diag import network_scan, get_subnet_ips
+from bluetooth_dialog import BluetoothPairingDialog
+from bluetooth_control import BluetoothDeviceManager, BLUETOOTH_AVAILABLE
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -93,134 +93,14 @@ class FavoritesDialog(QDialog):
         return selected
 
 
-class NetworkScanDialog(QDialog):
-    """Dialog for network scanning to find Android TV devices."""
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle('Network Scan')
-        self.setFixedSize(400, 350)
-        self.selected_ip = None
-        
-        layout = QVBoxLayout()
-        layout.setContentsMargins(10, 10, 10, 10)
-        
-        # Instructions
-        info_label = QLabel('Scanning local network for Android TV devices...')
-        layout.addWidget(info_label)
-        
-        # Results list
-        self.results_list = QListWidget()
-        self.results_list.setSelectionMode(QAbstractItemView.SingleSelection)
-        layout.addWidget(self.results_list)
-        
-        # Manual IP input section
-        manual_layout = QHBoxLayout()
-        manual_layout.addWidget(QLabel('Or enter IP manually:'))
-        self.ip_input = QLineEdit()
-        self.ip_input.setPlaceholderText('e.g., 192.168.1.100')
-        manual_layout.addWidget(self.ip_input)
-        layout.addLayout(manual_layout)
-        
-        # Status label
-        self.status_label = QLabel('')
-        self.status_label.setStyleSheet('color: #87CEEB; font-size: 10px;')
-        layout.addWidget(self.status_label)
-        
-        # Buttons
-        button_layout = QHBoxLayout()
-        use_btn = QPushButton('Use Selected / Manual IP')
-        use_btn.clicked.connect(self._on_use_ip)
-        scan_btn = QPushButton('Rescan')
-        scan_btn.clicked.connect(self._on_rescan)
-        cancel_btn = QPushButton('Cancel')
-        cancel_btn.clicked.connect(self.reject)
-        button_layout.addWidget(scan_btn)
-        button_layout.addWidget(use_btn)
-        button_layout.addWidget(cancel_btn)
-        layout.addLayout(button_layout)
-        
-        self.setLayout(layout)
-    
-    async def start_scan(self):
-        """Start the network scan with both mDNS and port scanning."""
-        self.status_label.setText('Scanning for devices...')
-        self.results_list.clear()
-        discovered_ips = set()
-        
-        try:
-            # First, try mDNS discovery (faster if devices respond)
-            self.status_label.setText('Searching via mDNS (5s)...')
-            _LOGGER.info('Starting mDNS discovery')
-            
-            # Create a temporary RemoteControl to use its discovery
-            temp_rc = RemoteControl()
-            mdns_results = await asyncio.wait_for(temp_rc.find_android_tv(), timeout=6)
-            
-            if mdns_results:
-                _LOGGER.info('mDNS found: %s', mdns_results)
-                for ip in mdns_results:
-                    discovered_ips.add(ip)
-                    self.results_list.addItem(f'{ip} (mDNS)')
-                self.status_label.setText(f'Found {len(discovered_ips)} via mDNS')
-            else:
-                _LOGGER.info('mDNS discovery found nothing, trying port scan...')
-                
-                # Fall back to port scanning
-                subnet_ips = get_subnet_ips(num_hosts=100)
-                if not subnet_ips:
-                    self.status_label.setText('Failed to determine subnet')
-                    return
-                
-                self.status_label.setText(f'Port scanning {len(subnet_ips)} hosts (30-60s)...')
-                results = await network_scan(subnet_ips, timeout=0.5)
-                
-                if results:
-                    for ip, ports in results:
-                        discovered_ips.add(ip)
-                        item_text = f'{ip} (ports: {", ".join(map(str, ports))})'
-                        self.results_list.addItem(item_text)
-                    self.status_label.setText(f'Found {len(discovered_ips)} device(s)')
-                else:
-                    self.status_label.setText('No devices found. Enter IP manually or check network.')
-                    
-        except asyncio.TimeoutError:
-            self.status_label.setText('Scan timeout. Try manual IP entry.')
-            _LOGGER.warning('Scan timeout')
-        except Exception as exc:
-            _LOGGER.error('Network scan error: %s', exc)
-            self.status_label.setText(f'Scan error: {str(exc)[:40]}')
-    
-    def _on_rescan(self):
-        """Rescan button clicked."""
-        # Use asyncSlot to run async function from sync button click
-        asyncio.create_task(self.start_scan())
-    
-    def _on_use_ip(self):
-        """Use selected IP or manual entry."""
-        # Check manual input first
-        manual_ip = self.ip_input.text().strip()
-        if manual_ip:
-            self.selected_ip = manual_ip
-            self.accept()
-            return
-        
-        # Check list selection
-        if self.results_list.currentItem():
-            # Extract IP from item text (format: "192.168.1.100 (ports: ...)")
-            item_text = self.results_list.currentItem().text()
-            self.selected_ip = item_text.split(' ')[0]
-            self.accept()
-        else:
-            self.status_label.setText('Please select an IP or enter manually')
-
-
 def connection_check(func):
     @functools.wraps(func)
     def wrapper(self):
         try:
-            if self.is_connected:
+            if self.bluetooth_connected:
                 return func(self)
-            self._on_search()
+            # Show message to connect via Bluetooth
+            self.search_label.setText('Not connected - use Bluetooth button')
         except Exception as exc:
             _LOGGER.error('Error: %s', exc)
             self.search_label.setText('Error')
@@ -235,8 +115,9 @@ class MainWindow(QWidget):
 
         Path('keys').mkdir(parents=True, exist_ok=True)
 
-        self.is_connected = False
-        self.remote_control = RemoteControl()
+        # Bluetooth functionality
+        self.bluetooth_manager = BluetoothDeviceManager() if BLUETOOTH_AVAILABLE else None
+        self.bluetooth_connected = False
 
         self._main_window_configure()
         self._create_tray()
@@ -247,25 +128,15 @@ class MainWindow(QWidget):
         self.search_label = QLabel('Not connected')
         top_layout.addWidget(self.search_label)
 
-        # Add 'Pair New Device' button
-        pair_button = QPushButton('Pair New Device')
-        pair_button.setFixedSize(180, 40)
-        pair_button.clicked.connect(self._on_pair_new_device)
-        top_layout.addWidget(pair_button)
-
-        # Keep the search/refresh button for rescanning
-        search_button = QPushButton('⟲')
-        search_button.setFixedSize(40, 40)
-        search_button.setToolTip('Rescan for devices')
-        search_button.clicked.connect(self._on_search)
-        top_layout.addWidget(search_button)
-
-        # Network scan button
-        network_btn = QPushButton('🌐')
-        network_btn.setFixedSize(40, 40)
-        network_btn.setToolTip('Network scan to find TV')
-        network_btn.clicked.connect(self._on_network_scan)
-        top_layout.addWidget(network_btn)
+        # Bluetooth connection button
+        self.bluetooth_btn = QPushButton('📡 Connect via Bluetooth')
+        self.bluetooth_btn.setFixedSize(220, 40)
+        self.bluetooth_btn.setToolTip('Bluetooth pairing with Android TV')
+        self.bluetooth_btn.clicked.connect(self._on_bluetooth_pairing)
+        if not BLUETOOTH_AVAILABLE:
+            self.bluetooth_btn.setEnabled(False)
+            self.bluetooth_btn.setToolTip('Bluetooth not available (install bleak package)')
+        top_layout.addWidget(self.bluetooth_btn)
 
         # Manage favorites button
         manage_fav_btn = QPushButton('⭐')
@@ -413,7 +284,8 @@ class MainWindow(QWidget):
     def _exit_app(self) -> None:
         self.tray_icon.hide()
         try:
-            self.remote_control.disconnect()
+            if self.bluetooth_connected and self.bluetooth_manager:
+                asyncio.create_task(self.bluetooth_manager.disconnect())
         except Exception as exc:
             _LOGGER.error('Disconnect Error: %s', exc)
         app = QApplication.instance()
@@ -441,162 +313,97 @@ class MainWindow(QWidget):
 
     @connection_check
     def _on_power(self) -> None:
-        self.remote_control.power()
+        if self.bluetooth_manager:
+            asyncio.create_task(self.bluetooth_manager.controller.power())
 
     @connection_check
     def _on_back(self) -> None:
-        self.remote_control.back()
+        if self.bluetooth_manager:
+            asyncio.create_task(self.bluetooth_manager.controller.back())
 
     @connection_check
     def _on_menu(self) -> None:
-        self.remote_control.menu()
+        if self.bluetooth_manager:
+            asyncio.create_task(self.bluetooth_manager.controller.menu())
 
     @connection_check
     def _on_home(self) -> None:
-        self.remote_control.home()
+        if self.bluetooth_manager:
+            asyncio.create_task(self.bluetooth_manager.controller.home())
 
     @connection_check
     def _on_channel_up(self) -> None:
-        self.remote_control.channel_up()
+        if self.bluetooth_manager:
+            asyncio.create_task(self.bluetooth_manager.controller.channel_up())
 
     @connection_check
     def _on_channel_down(self) -> None:
-        self.remote_control.channel_down()
+        if self.bluetooth_manager:
+            asyncio.create_task(self.bluetooth_manager.controller.channel_down())
 
     @connection_check
     def _on_volume_up(self) -> None:
-        self.remote_control.volume_up()
+        if self.bluetooth_manager:
+            asyncio.create_task(self.bluetooth_manager.controller.volume_up())
 
     @connection_check
     def _on_volume_down(self) -> None:
-        self.remote_control.volume_down()
+        if self.bluetooth_manager:
+            asyncio.create_task(self.bluetooth_manager.controller.volume_down())
 
     @connection_check
     def _on_mute(self) -> None:
-        self.remote_control.volume_mute()
+        if self.bluetooth_manager:
+            asyncio.create_task(self.bluetooth_manager.controller.volume_mute())
 
     @connection_check
     def _on_dpad_up(self) -> None:
-        self.remote_control.dpad_up()
+        if self.bluetooth_manager:
+            asyncio.create_task(self.bluetooth_manager.controller.dpad_up())
 
     @connection_check
     def _on_dpad_down(self) -> None:
-        self.remote_control.dpad_down()
+        if self.bluetooth_manager:
+            asyncio.create_task(self.bluetooth_manager.controller.dpad_down())
 
     @connection_check
     def _on_dpad_left(self) -> None:
-        self.remote_control.dpad_left()
+        if self.bluetooth_manager:
+            asyncio.create_task(self.bluetooth_manager.controller.dpad_left())
 
     @connection_check
     def _on_dpad_right(self) -> None:
-        self.remote_control.dpad_right()
+        if self.bluetooth_manager:
+            asyncio.create_task(self.bluetooth_manager.controller.dpad_right())
 
     @connection_check
     def _on_dpad_center(self) -> None:
-        self.remote_control.dpad_center()
+        if self.bluetooth_manager:
+            asyncio.create_task(self.bluetooth_manager.controller.dpad_center())
 
-    def _on_search(self) -> None:
-        asyncio.create_task(self._pair())
+    def _on_bluetooth_pairing(self):
+        """Open Bluetooth pairing dialog."""
+        if not BLUETOOTH_AVAILABLE:
+            from PyQt5.QtWidgets import QMessageBox
+            QMessageBox.warning(
+                self, 
+                'Bluetooth Not Available',
+                'Bluetooth functionality is not available.\n\n'
+                'To enable Bluetooth support, install the required package:\n'
+                'pip install bleak'
+            )
+            return
+        
+        dialog = BluetoothPairingDialog(self)
+        dialog.device_connected.connect(self._on_bluetooth_device_connected)
+        dialog.exec_()
 
-    async def _pair(self, host: str | None = None) -> None:
-        self.search_label.setText('Scanning...')
-        if self.is_connected:
-            self.is_connected = False
-            try:
-                self.remote_control.disconnect()
-            except Exception:
-                pass
-
-        try:
-            # Use provided host or discover via mDNS
-            if host:
-                tv_addr = host
-                _LOGGER.info('Using provided host: %s', tv_addr)
-            else:
-                addrs: list = await asyncio.wait_for(self.remote_control.find_android_tv(), timeout=10)
-                if len(addrs) > 0:
-                    tv_addr = addrs[0]
-                    _LOGGER.info('Found TV at %s', tv_addr)
-                else:
-                    tv_addr = None
-            
-            if not tv_addr:
-                self.search_label.setText('No TV found')
-                _LOGGER.error('No TV address found')
-                return
-            self.search_label.setText(f'Pairing {tv_addr}...')
-
-            try:
-                def get_pairing_code():
-                    _LOGGER.info('Showing pairing code input dialog')
-                    code, ok = QInputDialog.getText(
-                        self, 
-                        'Pairing Code', 
-                        'Enter the code shown on your TV screen:',
-                        QInputDialog.Normal,
-                        ''
-                    )
-                    _LOGGER.info('User dialog result: ok=%s, code_len=%d', ok, len(code) if code else 0)
-                    if ok and code.strip():
-                        return (code.strip(), True)
-                    return ('', False)
-                
-                # Try to pair with timeout
-                _LOGGER.info('Starting pair with timeout=30s')
-                await asyncio.wait_for(
-                    self.remote_control.pair(tv_addr, get_pairing_code),
-                    timeout=30
-                )
-                _LOGGER.info('Pairing completed successfully')
-                
-                device_info = self.remote_control.device_info()
-                if device_info:
-                    self.search_label.setText(f"✓ {device_info['manufacturer']}")
-                    self.is_connected = True
-                    device_name = f"{device_info.get('manufacturer', 'TV')} {device_info.get('model', '')}"
-                    history.update_history(device_name, tv_addr, False)
-                    self._refresh_device_lists()
-                    _LOGGER.info('Successfully paired with %s', tv_addr)
-                else:
-                    self.search_label.setText('Pairing failed')
-                    
-            except asyncio.TimeoutError:
-                self.search_label.setText('Pairing timeout (30s)')
-                _LOGGER.error('Pairing timeout for %s', tv_addr)
-            except RuntimeError as exc:
-                self.search_label.setText(f'Pairing cancelled: {exc}')
-                _LOGGER.warning('Pairing cancelled: %s', exc)
-            except Exception as exc:
-                self.search_label.setText('Pairing error')
-                _LOGGER.error('Pairing error: %s', exc)
-                    
-        except asyncio.TimeoutError:
-            self.search_label.setText('Search timeout')
-            _LOGGER.error('Search timeout')
-        except Exception as exc:
-            self.search_label.setText('Search error')
-            _LOGGER.error('Search error: %s', exc)
-
-    def _on_pair_new_device(self):
-        """Handler for the 'Pair New Device' button."""
-        asyncio.create_task(self._pair())
-    
     def _on_manage_favorites(self):
         """Open dialog to manage favorite apps."""
         dialog = FavoritesDialog(self)
         if dialog.exec_() == QDialog.Accepted:
             selected = dialog.get_selected_apps()
             self._update_favorite_apps(selected)
-    
-    def _on_network_scan(self):
-        """Open network scan dialog to find Android TV devices."""
-        dialog = NetworkScanDialog(self)
-        # Start scan in background
-        asyncio.create_task(dialog.start_scan())
-        if dialog.exec_() == QDialog.Accepted and dialog.selected_ip:
-            _LOGGER.info('User selected IP: %s', dialog.selected_ip)
-            # Pair with the selected IP
-            asyncio.create_task(self._pair(host=dialog.selected_ip))
     
     def _update_favorite_apps(self, selected_apps):
         """Update the displayed favorite apps based on user selection."""
@@ -621,55 +428,28 @@ class MainWindow(QWidget):
     def _launch_app(self, app_key):
         """Launch an app by sending appropriate keycode."""
         try:
-            if not self.is_connected:
-                self.search_label.setText('Not connected - pair first')
+            if not self.bluetooth_connected:
+                self.search_label.setText('Not connected - use Bluetooth button')
                 return
             
-            # App launch keycodes
-            app_codes = {
-                'netflix': 'KEYCODE_NETFLIX',
-                'youtube': 'KEYCODE_YOUTUBE',
-                'prime': 'KEYCODE_PRIME_VIDEO',
-                'plex': 'KEYCODE_PLEX',
-                'settings': 'KEYCODE_SETTINGS',
-                'hbo': 'KEYCODE_HBO',
-                'disney': 'KEYCODE_DISNEY',
-                'hulu': 'KEYCODE_HULU',
-            }
-            
-            if app_key in app_codes:
-                self.remote_control.send_key_command(app_codes[app_key])
-                self.search_label.setText(f'Launching {app_key}...')
+            if self.bluetooth_manager:
+                # For Bluetooth HID, we can't directly launch apps
+                # So we just send HOME to get to the launcher
+                asyncio.create_task(self._launch_app_bluetooth(app_key))
         except Exception as exc:
             _LOGGER.error('Launch app error: %s', exc)
             self.search_label.setText('Error launching app')
-
-    def _show_history_context_menu(self, position):
-        """Show context menu for history items."""
-        # This method can be expanded later for right-click context menu
-        pass
-
-    def _on_favorite_item_double_clicked(self, item):
-        """Handle double-click on favorite item."""
-        entry = item.data(1000)
-        asyncio.create_task(self._connect_to_history_device(entry))
-
-    def _on_history_item_double_clicked(self, item):
-        """Handle double-click on history item."""
-        entry = item.data(1000)
-        asyncio.create_task(self._connect_to_history_device(entry))
-
-    def _on_favorite_selection_changed(self, current, previous):
-        """Handle selection change in favorites list."""
-        pass
-
-    def _on_history_selection_changed(self, current, previous):
-        """Handle selection change in history list."""
-        pass
-
-    def _on_toggle_favorite(self):
-        """Toggle favorite status of selected device."""
-        pass
+    
+    async def _launch_app_bluetooth(self, app_key):
+        """Launch app via Bluetooth by sending HOME command."""
+        try:
+            # For Bluetooth HID, we can't directly launch apps
+            # So we just send HOME to get to the launcher
+            await self.bluetooth_manager.controller.home()
+            self.search_label.setText(f'Sent HOME - navigate to {app_key} manually')
+        except Exception as exc:
+            _LOGGER.error(f'Bluetooth app launch error: {exc}')
+            self.search_label.setText('Error with Bluetooth command')
 
     def _refresh_device_lists(self):
         """Refresh history list and favorite apps."""
@@ -709,27 +489,31 @@ class MainWindow(QWidget):
             self.favorite_apps_layout.addWidget(btn, row, col)
             self.favorite_apps[app_key] = btn
 
-    async def _connect_to_history_device(self, entry):
-        """Connect to a device from history or favorites."""
-        self.search_label.setText(f"Connecting to {entry['device_name']}...")
-        try:
-            def get_pairing_code():
-                code, ok = QInputDialog.getText(self, 'TV Remote Control', 'Enter the pairing code displayed on your TV:')
-                if ok and code.strip():
-                    return (code.strip(), True)
-                return ('', False)
-            
-            await self.remote_control.pair(entry['ip'], get_pairing_code)
-            device_info = self.remote_control.device_info()
-            if device_info:
-                self.search_label.setText(f"{device_info['manufacturer']} {device_info['model']}")
-                self.is_connected = True
-                # Update history with latest connection
-                history.update_history(entry['device_name'], entry['ip'], entry.get('favorite', False))
-                self._refresh_device_lists()
-        except Exception as exc:
-            self.search_label.setText('Not connected')
-            _LOGGER.error('History Connect Error: %s', exc)
+    def _on_bluetooth_device_connected(self, device_info):
+        """Handle successful Bluetooth device connection."""
+        _LOGGER.info(f"Bluetooth device connected: {device_info}")
+        
+        # Update UI
+        self.bluetooth_connected = True
+        self.search_label.setText(f"🔵 BT: {device_info.get('name', 'Unknown')}")
+        
+        # Add to history (with a special Bluetooth indicator)
+        device_name = f"[BT] {device_info.get('name', 'Bluetooth Device')}"
+        device_address = device_info.get('address', 'Unknown')
+        history.update_history(device_name, device_address, False)
+        self._refresh_device_lists()
+        
+        _LOGGER.info(f"Successfully connected via Bluetooth to {device_info.get('name')}")
+
+    def _on_history_item_double_clicked(self, item):
+        """Handle double-click on history item - try to reconnect to Bluetooth device."""
+        entry = item.data(1000)
+        if entry and entry.get('device_name', '').startswith('[BT]'):
+            # This is a Bluetooth device, open Bluetooth dialog for reconnection
+            self._on_bluetooth_pairing()
+        else:
+            # Legacy entry, show message
+            self.search_label.setText('Use Bluetooth button to connect')
 
 
 if __name__ == '__main__':

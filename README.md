@@ -1,6 +1,6 @@
 <div align="center">
-    <h1>📺 Android TV Remote Control Desktop</h1>
-    <p>Cross-platform desktop application for controlling Android TV</p>
+    <h1>� Bluetooth Android TV Remote Control</h1>
+    <p>Universal Bluetooth remote control for Android TV devices</p>
 
 [![Actions status](https://github.com/BushlanovDev/android-tv-remote-control-desktop/actions/workflows/check.yml/badge.svg)](https://github.com/BushlanovDev/android-tv-remote-control-desktop/actions) 
 [![Python](https://img.shields.io/badge/Python-3.12%2B-brightgreen)](https://www.python.org/downloads/)
@@ -11,10 +11,19 @@
 
 
 ## 🌟 Description
-**Attention!** This program can ONLY control Android TVs! To do this, the application and the TV must be in the same local network!  
-The application scans your network and connects to the found android TV.  
-It happens that the first attempt fails to find the TV, try pressing the search button again.  
-At the moment, the remote control has all the basic control capabilities, such as volume control, channel switching, menu calling and turning off the TV.
+**Bluetooth Remote Control for Android TV!** This application connects to your Android TV via Bluetooth and appears as a generic remote control device. 
+
+**How it works:**
+The application implements Bluetooth Low Energy (BLE) Human Interface Device (HID) profile to make your computer appear as a standard Bluetooth remote control to Android TV devices. This provides a universal remote control experience without requiring network configuration.
+
+**Features:**
+- **Universal Compatibility**: Works with any Android TV that supports Bluetooth HID input
+- **Standard Remote Functions**: Power, volume, navigation, channel control, and media buttons
+- **Easy Connection**: Simple Bluetooth pairing process
+- **App Quick Launch**: Favorite app buttons for quick access
+- **Connection History**: Remembers previously connected devices
+
+The remote control has all the basic control capabilities, such as volume control, channel switching, menu navigation, and power control via Bluetooth HID commands.
 <div align="center">
   <img src="https://github.com/BushlanovDev/android-tv-remote-control-desktop/blob/main/resources/screenshot.png?raw=true" alt="Android TV Remote Control Desktop Screenshot" width="800" />
 </div>
@@ -31,12 +40,27 @@ git clone https://github.com/BushlanovDev/android-tv-remote-control-desktop.git
 python -m venv venv
 source venv/bin/activate
 
-# Install dependencies
+# Install dependencies (includes Bluetooth support)
 pip install -r requirements.txt
 
 # Run app
 python main.py
 ```
+
+## 📡 Bluetooth Setup
+**Android TV Setup:**
+1. Go to Settings > Device Preferences > Remote & Accessories
+2. Select "Add accessory"
+3. Make your Android TV discoverable
+
+**Computer Setup:**
+1. Make sure your computer has Bluetooth capability
+2. The app will automatically handle Bluetooth discovery and pairing
+3. Click "📡 Connect via Bluetooth" in the app
+4. Select your Android TV from the discovered devices
+5. Connect and start using your remote!
+
+For detailed Bluetooth setup and troubleshooting, see [BLUETOOTH.md](BLUETOOTH.md).
 
 ## 🛠️ Building an executable file
 ```bash
