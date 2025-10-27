@@ -397,7 +397,6 @@ class MainWindow(QWidget):
         dialog = BluetoothPairingDialog(self)
         dialog.device_connected.connect(self._on_bluetooth_device_connected)
         dialog.exec_()
-
     def _on_manage_favorites(self):
         """Open dialog to manage favorite apps."""
         dialog = FavoritesDialog(self)
