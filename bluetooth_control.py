@@ -65,6 +65,8 @@ class ConsumerControlCodes(IntEnum):
     LEFT = 0x44
     RIGHT = 0x45
     SELECT = 0x41
+    # Pairing/Bluetooth control
+    PAIR = 0x225  # Bluetooth pairing button
 
 # HID Service and Characteristic UUIDs
 HID_SERVICE_UUID = "00001812-0000-1000-8000-00805f9b34fb"
@@ -294,6 +296,7 @@ class BluetoothRemoteController:
             'STOP': ConsumerControlCodes.STOP,
             'FAST_FORWARD': ConsumerControlCodes.FAST_FORWARD,
             'REWIND': ConsumerControlCodes.REWIND,
+            'PAIR': ConsumerControlCodes.PAIR,
         }
         
         consumer_code = key_mapping.get(key_code)
@@ -431,6 +434,10 @@ class BluetoothRemoteController:
     async def dpad_center(self) -> bool:
         """Send D-pad center/OK command."""
         return await self.send_key_command('DPAD_CENTER')
+
+    async def pair(self) -> bool:
+        """Send pairing button command to initiate Bluetooth pairing mode."""
+        return await self.send_key_command('PAIR')
 
     def get_device_info(self) -> Optional[Dict[str, str]]:
         """Get information about the connected device."""

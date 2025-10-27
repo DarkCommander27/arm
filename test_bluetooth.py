@@ -115,7 +115,7 @@ def test_hid_constants():
         expected_codes = [
             'POWER', 'HOME', 'BACK', 'MENU', 'VOLUME_UP', 'VOLUME_DOWN', 
             'VOLUME_MUTE', 'CHANNEL_UP', 'CHANNEL_DOWN', 'UP', 'DOWN', 
-            'LEFT', 'RIGHT', 'SELECT'
+            'LEFT', 'RIGHT', 'SELECT', 'PAIR'
         ]
         
         for code in expected_codes:

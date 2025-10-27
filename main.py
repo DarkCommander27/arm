@@ -195,6 +195,9 @@ class MainWindow(QWidget):
         self.add_button(grid_layout, 'Mute', 2, 1, self._on_mute, size=QSize(60, 40))
         self.add_button(grid_layout, 'VOL-', 2, 2, self._on_volume_down, size=QSize(60, 40))
 
+        # Add pairing button
+        self.add_button(grid_layout, '🔗 Pair', 3, 1, self._on_pair, size=QSize(60, 40))
+
         navigation_layout = QGridLayout()
         navigation_layout.setHorizontalSpacing(3)  # Reduced spacing
         navigation_layout.setVerticalSpacing(3)
@@ -380,6 +383,11 @@ class MainWindow(QWidget):
     def _on_dpad_center(self) -> None:
         if self.bluetooth_manager:
             asyncio.create_task(self.bluetooth_manager.controller.dpad_center())
+
+    def _on_pair(self) -> None:
+        """Send pairing command to Android TV."""
+        if self.bluetooth_manager:
+            asyncio.create_task(self.bluetooth_manager.controller.pair())
 
     def _on_bluetooth_pairing(self):
         """Open Bluetooth pairing dialog."""
