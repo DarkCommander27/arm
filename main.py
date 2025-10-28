@@ -31,6 +31,7 @@ from qasync import QEventLoop, asyncSlot
 import history
 from bluetooth_dialog import BluetoothPairingDialog
 from bluetooth_control import BluetoothDeviceManager, BLUETOOTH_AVAILABLE
+from bluetooth_hid_server import BluetoothHIDServerManager
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -118,6 +119,14 @@ class MainWindow(QWidget):
         # Bluetooth functionality
         self.bluetooth_manager = BluetoothDeviceManager() if BLUETOOTH_AVAILABLE else None
         self.bluetooth_connected = False
+        
+        # Bluetooth HID Server for pairing mode
+        self.hid_server_manager = BluetoothHIDServerManager("Android TV Remote") if BLUETOOTH_AVAILABLE else None
+        if self.hid_server_manager:
+            self.hid_server_manager.set_callbacks(
+                pairing_mode_callback=self._on_pairing_mode_changed,
+                device_connected_callback=self._on_hid_device_connected
+            )
 
         self._main_window_configure()
         self._create_tray()
@@ -196,7 +205,11 @@ class MainWindow(QWidget):
         self.add_button(grid_layout, 'VOL-', 2, 2, self._on_volume_down, size=QSize(60, 40))
 
         # Add pairing button
-        self.add_button(grid_layout, '🔗 Pair', 3, 1, self._on_pair, size=QSize(60, 40))
+        pair_btn = QPushButton('🔗 Pair')
+        pair_btn.setFixedSize(QSize(60, 40))
+        pair_btn.setToolTip('Enter pairing mode - make this remote discoverable to Android TV')
+        pair_btn.clicked.connect(self._on_pair)
+        grid_layout.addWidget(pair_btn, 3, 1)
 
         navigation_layout = QGridLayout()
         navigation_layout.setHorizontalSpacing(3)  # Reduced spacing
@@ -385,9 +398,15 @@ class MainWindow(QWidget):
             asyncio.create_task(self.bluetooth_manager.controller.dpad_center())
 
     def _on_pair(self) -> None:
-        """Send pairing command to Android TV."""
+        """
+        Enter pairing mode - make this remote discoverable to Android TV.
+        
+        This puts the virtual remote control into pairing mode so Android TV
+        devices can discover and connect to it as a Bluetooth HID remote control.
+        """
         _LOGGER.info("Pair button pressed by user")
-        _LOGGER.debug("Bluetooth available=%s, bluetooth_manager=%s", BLUETOOTH_AVAILABLE, repr(self.bluetooth_manager))
+        _LOGGER.debug("Bluetooth available=%s, hid_server_manager=%s", BLUETOOTH_AVAILABLE, repr(self.hid_server_manager))
+        
         # If Bluetooth support isn't available, prompt the user
         if not BLUETOOTH_AVAILABLE:
             from PyQt5.QtWidgets import QMessageBox
@@ -400,36 +419,62 @@ class MainWindow(QWidget):
             )
             return
 
-        if not self.bluetooth_manager:
+        if not self.hid_server_manager:
             # Defensive check - should not happen when BLUETOOTH_AVAILABLE is True
             from PyQt5.QtWidgets import QMessageBox
-            QMessageBox.critical(self, 'Error', 'Bluetooth manager is not initialized')
+            QMessageBox.critical(self, 'Error', 'Bluetooth HID server is not initialized')
             return
-        _LOGGER.debug("Bluetooth manager present, controller connected=%s", getattr(self.bluetooth_manager.controller, 'is_connected', False))
-        # If not currently connected, open the pairing dialog to let the user connect first.
-        # Sending a HID "PAIR" report requires an active Bluetooth connection.
-        if not getattr(self.bluetooth_manager.controller, 'is_connected', False):
-            _LOGGER.info("Not connected - opening pairing dialog for user to select device")
-            # Launch the same pairing dialog used elsewhere so the user can establish a connection
-            dialog = BluetoothPairingDialog(self)
-            dialog.device_connected.connect(self._on_bluetooth_device_connected)
-            dialog.exec_()
+        
+        # Check if already in pairing mode
+        if self.hid_server_manager.is_pairing_mode_active():
+            _LOGGER.info("Already in pairing mode - stopping pairing mode")
+            asyncio.create_task(self._stop_pairing_mode())
             return
+        
+        # Enter pairing mode - make this device discoverable
+        _LOGGER.info("Starting pairing mode - making device discoverable")
+        self.search_label.setText('Entering pairing mode...')
+        asyncio.create_task(self._start_pairing_mode())
 
-        # If already connected, send the pairing HID report (this acts like pressing the TV's pairing button)
-        async def _do_pair():
-            try:
-                _LOGGER.info("Sending PAIR HID report via bluetooth_manager.controller.pair()")
-                success = await self.bluetooth_manager.controller.pair()
-                if success:
-                    self.search_label.setText('Pair signal sent')
-                else:
-                    self.search_label.setText('Pair signal failed')
-            except Exception as exc:
-                _LOGGER.exception('Error sending pair command: %s', exc)
-                self.search_label.setText('Pair error')
+    async def _start_pairing_mode(self):
+        """Start pairing mode asynchronously."""
+        try:
+            success = await self.hid_server_manager.start_pairing_mode(timeout=120.0)  # 2 minutes
+            if success:
+                self.search_label.setText('✅ Pairing mode active - remote is discoverable')
+            else:
+                self.search_label.setText('❌ Failed to enter pairing mode')
+        except Exception as exc:
+            _LOGGER.exception('Error starting pairing mode: %s', exc)
+            self.search_label.setText('❌ Pairing mode error')
 
-        asyncio.create_task(_do_pair())
+    async def _stop_pairing_mode(self):
+        """Stop pairing mode asynchronously."""
+        try:
+            await self.hid_server_manager.stop_pairing_mode()
+            self.search_label.setText('Pairing mode stopped')
+        except Exception as exc:
+            _LOGGER.exception('Error stopping pairing mode: %s', exc)
+            self.search_label.setText('❌ Error stopping pairing mode')
+    
+    def _on_pairing_mode_changed(self, active: bool):
+        """Handle pairing mode state changes."""
+        if active:
+            _LOGGER.info("Pairing mode ACTIVE - device is discoverable as 'Android TV Remote'")
+            self.search_label.setText('🔵 Pairing mode ON - discoverable to Android TV')
+        else:
+            _LOGGER.info("Pairing mode INACTIVE")
+            self.search_label.setText('Pairing mode ended')
+    
+    def _on_hid_device_connected(self, device_id: str):
+        """Handle HID device connections."""
+        _LOGGER.info(f"HID device connected: {device_id}")
+        self.search_label.setText(f'🔗 Connected to: {device_id}')
+        
+        # Add to history
+        device_name = f"[HID] {device_id}"
+        history.update_history(device_name, device_id, False)
+        self._refresh_device_lists()
 
     def _on_bluetooth_pairing(self):
         """Open Bluetooth pairing dialog."""

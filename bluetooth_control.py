@@ -436,7 +436,16 @@ class BluetoothRemoteController:
         return await self.send_key_command('DPAD_CENTER')
 
     async def pair(self) -> bool:
-        """Send pairing button command to initiate Bluetooth pairing mode."""
+        """
+        Put the connected Android TV into pairing mode.
+        
+        Sends a PAIR HID report (usage code 0x0225) to the Android TV, which
+        activates pairing mode on the TV, making it discoverable to other
+        Bluetooth devices like phones, tablets, etc.
+        
+        Returns:
+            True if the pairing mode command was sent successfully, False otherwise
+        """
         _LOGGER.info("BluetoothRemoteController.pair() called")
         try:
             result = await self.send_key_command('PAIR')
