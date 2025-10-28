@@ -105,12 +105,13 @@ class BluetoothRemoteController:
         if self.connection_callback:
             self.connection_callback(connected, message)
     
-    async def discover_android_tv_devices(self, timeout: float = 10.0) -> List[Dict[str, str]]:
+    async def discover_android_tv_devices(self, timeout: float = 15.0, retry_count: int = 3) -> List[Dict[str, str]]:
         """
-        Discover Bluetooth-enabled Android TV devices.
+        Discover Bluetooth-enabled Android TV devices with improved reliability.
         
         Args:
-            timeout: Discovery timeout in seconds
+            timeout: Discovery timeout per attempt in seconds
+            max_attempts: Maximum number of discovery attempts
             
         Returns:
             List of dictionaries containing device info
@@ -118,53 +119,143 @@ class BluetoothRemoteController:
         if not BLUETOOTH_AVAILABLE:
             return []
         
-        _LOGGER.info("Starting Bluetooth device discovery...")
-        devices = []
+        _LOGGER.info(f"Starting enhanced Bluetooth device discovery ({max_attempts} attempts, {timeout}s each)...")
+        all_devices = {}  # Use dict to deduplicate by address
         
-        try:
-            # Scan for BLE devices
-            discovered = await BleakScanner.discover(timeout=timeout)
+        for attempt in range(max_attempts):
+            _LOGGER.info(f"Discovery attempt {attempt + 1}/{max_attempts}")
             
-            for device in discovered:
-                device_info = {
-                    'address': device.address,
-                    'name': device.name or 'Unknown Device',
-                    'rssi': getattr(device, 'rssi', None)
-                }
+            try:
+                # Use longer timeout and more aggressive scanning
+                discovered = await BleakScanner.discover(
+                    timeout=timeout,
+                    return_adv=True  # Get advertisement data if available
+                )
                 
-                # Look for Android TV indicators in device name or services
-                if self._is_likely_android_tv(device):
-                    _LOGGER.info(f"Found potential Android TV device: {device_info}")
-                    devices.append(device_info)
-                elif device.name:  # Include named devices for manual selection
-                    devices.append(device_info)
-            
-            _LOGGER.info(f"Bluetooth discovery complete. Found {len(devices)} devices")
-            return devices
-            
-        except Exception as exc:
-            _LOGGER.error(f"Bluetooth discovery failed: {exc}")
-            return []
+                attempt_count = 0
+                for device_key, (device, adv_data) in discovered.items():
+                    if isinstance(device_key, tuple):
+                        device = device_key[0] if device_key else device
+                    
+                    # Get device info with enhanced data
+                    device_info = {
+                        'address': device.address,
+                        'name': device.name or 'Unknown Device',
+                        'rssi': getattr(device, 'rssi', getattr(adv_data, 'rssi', None)),
+                        'manufacturer_data': getattr(adv_data, 'manufacturer_data', {}),
+                        'service_uuids': getattr(adv_data, 'service_uuids', []),
+                        'local_name': getattr(adv_data, 'local_name', device.name),
+                        'tx_power': getattr(adv_data, 'tx_power', None),
+                        'discovery_attempt': attempt + 1
+                    }
+                    
+                    # Only include devices with names or strong signals
+                    if device.name or (device_info['rssi'] and device_info['rssi'] > -80):
+                        all_devices[device.address] = device_info
+                        attempt_count += 1
+                
+                _LOGGER.info(f"Attempt {attempt + 1}: Found {attempt_count} devices")
+                
+                # If we found devices and this isn't the first attempt, add delay before next
+                if attempt_count > 0 and attempt < max_attempts - 1:
+                    await asyncio.sleep(2)
+                    
+            except Exception as exc:
+                _LOGGER.warning(f"Discovery attempt {attempt + 1} failed: {exc}")
+                if attempt < max_attempts - 1:
+                    await asyncio.sleep(1)  # Brief delay before retry
+        
+        # Convert to list and sort by likelihood and signal strength
+        devices = list(all_devices.values())
+        devices = self._sort_and_filter_devices(devices)
+        
+        _LOGGER.info(f"Enhanced discovery complete. Found {len(devices)} total devices")
+        for device in devices[:5]:  # Log top 5
+            _LOGGER.info(f"  {device['name']} ({device['address']}) RSSI: {device['rssi']}")
+        
+        return devices
     
+    def _sort_and_filter_devices(self, devices: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Sort and filter devices by relevance and signal strength."""
+        # Separate Android TV devices from others
+        tv_devices = []
+        other_devices = []
+        
+        for device in devices:
+            if self._is_likely_android_tv_enhanced(device):
+                tv_devices.append(device)
+            else:
+                other_devices.append(device)
+        
+        # Sort Android TV devices by signal strength (best first)
+        tv_devices.sort(key=lambda d: d.get('rssi', -100), reverse=True)
+        
+        # Sort other devices by signal strength, but lower priority
+        other_devices.sort(key=lambda d: d.get('rssi', -100), reverse=True)
+        
+        # Return TV devices first, then others, but limit total results
+        return tv_devices + other_devices[:20]  # Top 20 total
+    
+    def _is_likely_android_tv_enhanced(self, device: Dict[str, Any]) -> bool:
+        """Enhanced Android TV detection using multiple indicators."""
+        name = (device.get('name') or device.get('local_name', '')).lower()
+        
+        # Strong indicators (definitely Android TV)
+        strong_indicators = [
+            'android tv', 'google tv', 'chromecast', 'nvidia shield',
+            'mi box', 'fire tv', 'smart tv', 'tv box', 'sony bravia',
+            'philips tv', 'samsung tv', 'lg tv'
+        ]
+        
+        # Weak indicators (might be Android TV)
+        weak_indicators = [
+            'tv', 'roku', 'streaming', 'media', 'cast', 'player'
+        ]
+        
+        # Check manufacturer data for known TV manufacturers
+        manufacturer_data = device.get('manufacturer_data', {})
+        tv_manufacturers = [0x00E0, 0x004C, 0x0006]  # Sony, Apple, Microsoft (example IDs)
+        
+        # Check service UUIDs for media/HID services
+        service_uuids = device.get('service_uuids', [])
+        media_services = ['1812', '180F', '1800']  # HID, Battery, Generic Access
+        
+        # Strong match
+        if any(indicator in name for indicator in strong_indicators):
+            return True
+        
+        # Weak match with good signal
+        if any(indicator in name for indicator in weak_indicators):
+            rssi = device.get('rssi', -100)
+            if rssi > -70:  # Strong signal suggests nearby device
+                return True
+        
+        # Check manufacturer or services
+        if any(mfg_id in manufacturer_data for mfg_id in tv_manufacturers):
+            return True
+        
+        if any(service in str(service_uuids) for service in media_services):
+            return True
+        
+        return False
+
     def _is_likely_android_tv(self, device) -> bool:
-        """Check if a device is likely an Android TV."""
+        """Check if a device is likely an Android TV (legacy method)."""
         if not device.name:
             return False
         
-        name_lower = device.name.lower()
-        android_tv_indicators = [
-            'android tv', 'google tv', 'chromecast', 'nvidia shield',
-            'mi box', 'fire tv', 'roku', 'smart tv', 'tv box'
-        ]
-        
-        return any(indicator in name_lower for indicator in android_tv_indicators)
+        return self._is_likely_android_tv_enhanced({
+            'name': device.name,
+            'rssi': getattr(device, 'rssi', None)
+        })
     
-    async def connect(self, device_address: str) -> bool:
+    async def connect(self, device_address: str, max_attempts: int = 3) -> bool:
         """
-        Connect to a Bluetooth device.
+        Connect to a Bluetooth device with retry logic.
         
         Args:
             device_address: Bluetooth MAC address of the device
+            max_attempts: Maximum connection attempts
             
         Returns:
             True if connection successful, False otherwise
@@ -173,55 +264,94 @@ class BluetoothRemoteController:
             _LOGGER.error("Bluetooth not available")
             return False
         
-        try:
-            _LOGGER.info(f"Attempting to connect to {device_address}")
-            self._notify_connection_status(False, f"Connecting to {device_address}...")
-            
-            self.client = BleakClient(device_address)
-            await self.client.connect()
-            
-            if not self.client.is_connected:
-                _LOGGER.error("Failed to establish connection")
-                self._notify_connection_status(False, "Connection failed")
-                return False
-            
-            _LOGGER.info("Connected successfully, discovering services...")
-            
-            # Discover services and characteristics
-            services = await self.client.get_services()
-            self.hid_report_char = None
-            
-            # Look for HID service and report characteristic
-            for service in services:
-                _LOGGER.debug(f"Found service: {service.uuid}")
-                if str(service.uuid).lower() == HID_SERVICE_UUID.lower():
-                    _LOGGER.info("Found HID service")
-                    for char in service.characteristics:
-                        if str(char.uuid).lower() == HID_REPORT_UUID.lower():
-                            self.hid_report_char = char
-                            _LOGGER.info("Found HID report characteristic")
-                            break
-            
-            if not self.hid_report_char:
-                _LOGGER.warning("HID report characteristic not found, using generic approach")
-            
-            self.device_address = device_address
-            self.is_connected = True
-            
-            # Get device info
-            device_info = await self._get_device_info()
-            self.device_name = device_info.get('name', 'Unknown Device')
-            
-            _LOGGER.info(f"Successfully connected to {self.device_name}")
-            self._notify_connection_status(True, f"Connected to {self.device_name}")
-            
-            return True
-            
-        except Exception as exc:
-            _LOGGER.error(f"Connection failed: {exc}")
-            self._notify_connection_status(False, f"Connection failed: {str(exc)[:50]}")
-            await self.disconnect()
-            return False
+        _LOGGER.info(f"Attempting to connect to {device_address} (max {max_attempts} attempts)")
+        
+        for attempt in range(max_attempts):
+            try:
+                _LOGGER.info(f"Connection attempt {attempt + 1}/{max_attempts}")
+                self._notify_connection_status(False, f"Connecting... (attempt {attempt + 1})")
+                
+                self.client = BleakClient(device_address)
+                
+                # Set connection timeout
+                connection_timeout = 15.0 + (attempt * 5)  # Longer timeout for later attempts
+                _LOGGER.debug(f"Using connection timeout: {connection_timeout}s")
+                
+                await asyncio.wait_for(self.client.connect(), timeout=connection_timeout)
+                
+                if not self.client.is_connected:
+                    _LOGGER.warning(f"Connection attempt {attempt + 1} failed - not connected after connect()")
+                    if attempt < max_attempts - 1:
+                        await asyncio.sleep(2)  # Wait before retry
+                    continue
+                
+                _LOGGER.info("Connected successfully, discovering services...")
+                
+                # Discover services with timeout
+                try:
+                    services = await asyncio.wait_for(self.client.get_services(), timeout=10.0)
+                    self.hid_report_char = None
+                    
+                    # Look for HID service and report characteristic
+                    for service in services:
+                        _LOGGER.debug(f"Found service: {service.uuid}")
+                        if str(service.uuid).lower() == HID_SERVICE_UUID.lower():
+                            _LOGGER.info("Found HID service")
+                            for char in service.characteristics:
+                                if str(char.uuid).lower() == HID_REPORT_UUID.lower():
+                                    self.hid_report_char = char
+                                    _LOGGER.info("Found HID report characteristic")
+                                    break
+                    
+                    if not self.hid_report_char:
+                        _LOGGER.warning("HID report characteristic not found, using generic approach")
+                    
+                    self.device_address = device_address
+                    self.is_connected = True
+                    
+                    # Get device info
+                    device_info = await self._get_device_info()
+                    self.device_name = device_info.get('name', 'Unknown Device')
+                    
+                    _LOGGER.info(f"Successfully connected to {self.device_name}")
+                    self._notify_connection_status(True, f"Connected to {self.device_name}")
+                    
+                    return True
+                    
+                except asyncio.TimeoutError:
+                    _LOGGER.warning(f"Service discovery timeout on attempt {attempt + 1}")
+                    await self.disconnect()
+                    if attempt < max_attempts - 1:
+                        await asyncio.sleep(3)
+                    continue
+                    
+            except asyncio.TimeoutError:
+                _LOGGER.warning(f"Connection timeout on attempt {attempt + 1}")
+                if self.client:
+                    try:
+                        await self.client.disconnect()
+                    except:
+                        pass
+                if attempt < max_attempts - 1:
+                    await asyncio.sleep(2)
+                continue
+                
+            except Exception as exc:
+                _LOGGER.error(f"Connection attempt {attempt + 1} failed: {exc}")
+                if self.client:
+                    try:
+                        await self.client.disconnect()
+                    except:
+                        pass
+                if attempt < max_attempts - 1:
+                    await asyncio.sleep(2)
+                continue
+        
+        # All attempts failed
+        _LOGGER.error(f"All {max_attempts} connection attempts failed")
+        self._notify_connection_status(False, f"Connection failed after {max_attempts} attempts")
+        await self.disconnect()
+        return False
     
     async def disconnect(self):
         """Disconnect from the current device."""
@@ -475,14 +605,14 @@ class BluetoothDeviceManager:
         self.controller = BluetoothRemoteController()
         self.discovered_devices: List[Dict[str, str]] = []
         
-    async def discover_devices(self, timeout: float = 10.0) -> List[Dict[str, str]]:
-        """Discover nearby Bluetooth devices."""
-        self.discovered_devices = await self.controller.discover_android_tv_devices(timeout)
+    async def discover_devices(self, timeout: float = 20.0, max_attempts: int = 3) -> List[Dict[str, str]]:
+        """Discover nearby Bluetooth devices with enhanced reliability."""
+        self.discovered_devices = await self.controller.discover_android_tv_devices(timeout, max_attempts)
         return self.discovered_devices
     
-    async def connect_to_device(self, device_address: str) -> bool:
-        """Connect to a specific device."""
-        return await self.controller.connect(device_address)
+    async def connect_to_device(self, device_address: str, max_attempts: int = 3) -> bool:
+        """Connect to a specific device with retry logic."""
+        return await self.controller.connect(device_address, max_attempts)
     
     async def disconnect(self):
         """Disconnect from current device."""

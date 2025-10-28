@@ -17,6 +17,7 @@ from PyQt5.QtWidgets import (
 )
 
 from bluetooth_control import BluetoothDeviceManager, BLUETOOTH_AVAILABLE
+from bluetooth_enhanced import EnhancedBluetoothDeviceManager
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -41,8 +42,8 @@ class BluetoothPairingDialog(QDialog):
         self.setFixedSize(500, 600)
         self.setModal(True)
         
-        # Bluetooth manager
-        self.bt_manager = BluetoothDeviceManager() if BLUETOOTH_AVAILABLE else None
+        # Bluetooth manager - use enhanced version
+        self.bt_manager = EnhancedBluetoothDeviceManager() if BLUETOOTH_AVAILABLE else None
         self.selected_device: Optional[Dict[str, str]] = None
         self.connection_timer = QTimer()
         self.connection_timer.timeout.connect(self._check_connection_status)
@@ -76,17 +77,36 @@ class BluetoothPairingDialog(QDialog):
         # Discovery controls
         discovery_layout = QHBoxLayout()
         
-        self.scan_button = QPushButton('🔍 Scan for Devices')
+        self.scan_button = QPushButton('🔍 Enhanced Scan')
         self.scan_button.clicked.connect(self._start_discovery)
         discovery_layout.addWidget(self.scan_button)
+        
+        self.quick_scan_button = QPushButton('⚡ Quick Scan')
+        self.quick_scan_button.clicked.connect(self._start_quick_discovery)
+        discovery_layout.addWidget(self.quick_scan_button)
+        
+        self.manual_button = QPushButton('✏️ Manual Entry')
+        self.manual_button.clicked.connect(self._manual_device_entry)
+        discovery_layout.addWidget(self.manual_button)
+        
+        discovery_layout.addStretch()
+        layout.addLayout(discovery_layout)
+        
+        # Discovery options
+        options_layout = QHBoxLayout()
         
         self.show_all_checkbox = QCheckBox('Show all devices')
         self.show_all_checkbox.setChecked(False)
         self.show_all_checkbox.toggled.connect(self._filter_devices)
-        discovery_layout.addWidget(self.show_all_checkbox)
+        options_layout.addWidget(self.show_all_checkbox)
         
-        discovery_layout.addStretch()
-        layout.addLayout(discovery_layout)
+        self.signal_filter_checkbox = QCheckBox('Strong signal only')
+        self.signal_filter_checkbox.setChecked(True)
+        self.signal_filter_checkbox.toggled.connect(self._filter_devices)
+        options_layout.addWidget(self.signal_filter_checkbox)
+        
+        options_layout.addStretch()
+        layout.addLayout(options_layout)
         
         # Progress bar
         self.progress_bar = QProgressBar()
@@ -246,67 +266,176 @@ class BluetoothPairingDialog(QDialog):
         _LOGGER.info(f"Bluetooth Dialog: {message}")
     
     def _start_discovery(self):
-        """Start Bluetooth device discovery."""
+        """Start enhanced Bluetooth device discovery."""
         if not self.bt_manager:
             return
         
-        self._log_status("🔍 Starting Bluetooth device discovery...")
+        self._log_status("🔍 Starting enhanced Bluetooth discovery (3 attempts, 20s each)...")
         self.scan_button.setEnabled(False)
+        self.quick_scan_button.setEnabled(False)
         self.progress_bar.setVisible(True)
         self.progress_bar.setRange(0, 0)  # Indeterminate progress
         self.device_list.clear()
         
-        # Start discovery in background
-        asyncio.create_task(self._discover_devices())
+        # Start enhanced discovery in background
+        asyncio.create_task(self._discover_devices_enhanced())
     
-    async def _discover_devices(self):
-        """Perform device discovery asynchronously."""
+    def _start_quick_discovery(self):
+        """Start quick Bluetooth device discovery."""
+        if not self.bt_manager:
+            return
+        
+        self._log_status("⚡ Starting quick Bluetooth discovery (1 attempt, 10s)...")
+        self.scan_button.setEnabled(False)
+        self.quick_scan_button.setEnabled(False)
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setRange(0, 0)
+        self.device_list.clear()
+        
+        # Start quick discovery
+        asyncio.create_task(self._discover_devices_quick())
+    
+    def _manual_device_entry(self):
+        """Allow manual entry of device address."""
+        from PyQt5.QtWidgets import QInputDialog
+        
+        address, ok = QInputDialog.getText(
+            self, 
+            'Manual Device Entry',
+            'Enter Bluetooth MAC address (e.g., AA:BB:CC:DD:EE:FF):',
+            text='00:00:00:00:00:00'
+        )
+        
+        if ok and address:
+            # Validate MAC address format
+            import re
+            if re.match(r'^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$', address):
+                device_info = {
+                    'address': address.upper(),
+                    'name': f'Manual Entry - {address}',
+                    'rssi': 0,
+                    'manual_entry': True
+                }
+                self._add_device_to_list(device_info)
+                self._log_status(f"✏️ Added manual device: {address}")
+            else:
+                self._log_status("❌ Invalid MAC address format")
+
+    async def _discover_devices_enhanced(self):
+        """Perform enhanced device discovery asynchronously."""
         try:
-            devices = await self.bt_manager.discover_devices(timeout=10.0)
+            devices = await self.bt_manager.discover_devices(timeout=20.0, max_attempts=3)
             
             self.progress_bar.setVisible(False)
             self.scan_button.setEnabled(True)
+            self.quick_scan_button.setEnabled(True)
             
             if devices:
-                self._log_status(f"✓ Discovery complete. Found {len(devices)} devices.")
+                self._log_status(f"✓ Enhanced discovery complete. Found {len(devices)} devices.")
                 self._populate_device_list(devices)
             else:
-                self._log_status("❌ No Bluetooth devices found.")
-                self._log_status("Make sure your Android TV Bluetooth is enabled and discoverable.")
+                self._log_status("❌ No Bluetooth devices found with enhanced scan.")
+                self._log_status("Try: 1) Move closer to Android TV, 2) Enable TV Bluetooth, 3) Manual entry")
                 
         except Exception as exc:
             self.progress_bar.setVisible(False)
             self.scan_button.setEnabled(True)
-            self._log_status(f"❌ Discovery failed: {str(exc)}")
-            _LOGGER.error(f"Bluetooth discovery error: {exc}")
+            self.quick_scan_button.setEnabled(True)
+            self._log_status(f"❌ Enhanced discovery failed: {str(exc)}")
+            _LOGGER.error(f"Enhanced Bluetooth discovery error: {exc}")
+    
+    async def _discover_devices_quick(self):
+        """Perform quick device discovery asynchronously."""
+        try:
+            devices = await self.bt_manager.discover_devices(timeout=10.0, max_attempts=1)
+            
+            self.progress_bar.setVisible(False)
+            self.scan_button.setEnabled(True)
+            self.quick_scan_button.setEnabled(True)
+            
+            if devices:
+                self._log_status(f"⚡ Quick discovery complete. Found {len(devices)} devices.")
+                self._populate_device_list(devices)
+            else:
+                self._log_status("❌ No devices found in quick scan. Try enhanced scan.")
+                
+        except Exception as exc:
+            self.progress_bar.setVisible(False)
+            self.scan_button.setEnabled(True)
+            self.quick_scan_button.setEnabled(True)
+            self._log_status(f"❌ Quick discovery failed: {str(exc)}")
+            _LOGGER.error(f"Quick Bluetooth discovery error: {exc}")
     
     def _populate_device_list(self, devices: List[Dict[str, str]]):
         """Populate the device list with discovered devices."""
         self.device_list.clear()
         
         for device in devices:
-            name = device.get('name', 'Unknown Device')
-            address = device.get('address', '')
-            rssi = device.get('rssi')
-            
-            # Create display text
-            display_text = f"{name}"
-            if rssi is not None:
-                display_text += f" (Signal: {rssi} dBm)"
-            display_text += f"\n{address}"
-            
-            # Create list item
-            item = QListWidgetItem(display_text)
-            item.setData(Qt.UserRole, device)
-            
-            # Highlight likely Android TV devices
-            if self._is_likely_android_tv(device):
-                item.setBackground(Qt.darkBlue)
-                item.setText(f"📺 {display_text}")
-            
-            self.device_list.addItem(item)
+            self._add_device_to_list(device)
         
         self._filter_devices()
+    
+    def _add_device_to_list(self, device: Dict[str, str]):
+        """Add a single device to the list."""
+        name = device.get('name', 'Unknown Device')
+        address = device.get('address', '')
+        rssi = device.get('rssi')
+        
+        # Create display text with enhanced info
+        display_text = f"{name}"
+        
+        # Add signal strength info
+        if rssi is not None:
+            try:
+                rssi_num = int(rssi) if isinstance(rssi, str) else rssi
+                if rssi_num > -50:
+                    signal_desc = "Excellent"
+                elif rssi_num > -60:
+                    signal_desc = "Very Good"
+                elif rssi_num > -70:
+                    signal_desc = "Good"
+                elif rssi_num > -80:
+                    signal_desc = "Fair"
+                else:
+                    signal_desc = "Weak"
+                display_text += f" ({signal_desc}: {rssi_num} dBm)"
+            except (ValueError, TypeError):
+                display_text += f" (Signal: {rssi})"
+        
+        # Add manual entry indicator
+        if device.get('manual_entry'):
+            display_text = f"✏️ {display_text}"
+        
+        display_text += f"\n{address}"
+        
+        # Add discovery attempt info if available
+        if device.get('discovery_attempt'):
+            display_text += f" (Found in attempt {device.get('discovery_attempt')})"
+        
+        # Create list item
+        item = QListWidgetItem(display_text)
+        item.setData(0x0100, device)  # Use numeric constant instead of Qt.UserRole
+        
+        # Highlight likely Android TV devices
+        if self._is_likely_android_tv(device):
+            from PyQt5.QtGui import QColor
+            item.setBackground(QColor(0, 0, 139))  # Dark blue
+            item.setText(f"📺 {display_text}")
+        
+        # Color code by signal strength
+        if rssi is not None:
+            try:
+                rssi_num = int(rssi) if isinstance(rssi, str) else rssi
+                if rssi_num > -60:
+                    from PyQt5.QtGui import QColor
+                    item.setForeground(QColor(0, 255, 0))  # Green for strong signal
+                elif rssi_num < -80:
+                    from PyQt5.QtGui import QColor
+                    item.setForeground(QColor(255, 165, 0))  # Orange for weak signal
+            except (ValueError, TypeError):
+                pass  # Skip coloring if RSSI is not numeric
+        
+        self.device_list.addItem(item)
     
     def _is_likely_android_tv(self, device: Dict[str, str]) -> bool:
         """Check if device is likely an Android TV."""
@@ -318,18 +447,31 @@ class BluetoothPairingDialog(QDialog):
         return any(indicator in name for indicator in android_tv_indicators)
     
     def _filter_devices(self):
-        """Filter device list based on show_all_checkbox."""
+        """Filter device list based on checkboxes."""
         show_all = self.show_all_checkbox.isChecked()
+        strong_signal_only = self.signal_filter_checkbox.isChecked()
         
         for i in range(self.device_list.count()):
             item = self.device_list.item(i)
-            device = item.data(Qt.UserRole)
+            device = item.data(0x0100)  # Use numeric constant
             
-            if show_all:
-                item.setHidden(False)
-            else:
+            should_show = True
+            
+            if not show_all:
                 # Only show likely Android TV devices
-                item.setHidden(not self._is_likely_android_tv(device))
+                should_show = self._is_likely_android_tv(device)
+            
+            if strong_signal_only and should_show:
+                # Filter by signal strength
+                rssi = device.get('rssi')
+                if rssi is not None:
+                    try:
+                        rssi_num = int(rssi) if isinstance(rssi, str) else rssi
+                        should_show = rssi_num > -75  # Only show devices with decent signal
+                    except (ValueError, TypeError):
+                        should_show = True  # Show if we can't parse RSSI
+            
+            item.setHidden(not should_show)
     
     def _on_device_selection_changed(self):
         """Handle device selection change."""
@@ -365,13 +507,23 @@ class BluetoothPairingDialog(QDialog):
         asyncio.create_task(self._connect_device(device_address))
     
     async def _connect_device(self, device_address: str):
-        """Perform device connection asynchronously."""
+        """Perform device connection asynchronously with retry logic."""
+        if not self.bt_manager:
+            self._log_status("❌ Bluetooth manager not available")
+            return
+            
         try:
-            success = await self.bt_manager.connect_to_device(device_address)
+            success = await self.bt_manager.connect_with_retry(device_address, max_retries=3)
             
             if success:
-                device_info = self.bt_manager.get_connected_device_info()
-                self._log_status(f"✅ Connected to {device_info['name']}")
+                device_info = None
+                if self.bt_manager.controller:
+                    device_info = self.bt_manager.controller.get_device_info()
+                
+                if device_info:
+                    self._log_status(f"✅ Connected to {device_info['name']}")
+                else:
+                    self._log_status(f"✅ Connected to {device_address}")
                 
                 self.disconnect_button.setEnabled(True)
                 self.test_connection_button.setEnabled(True)
@@ -380,10 +532,16 @@ class BluetoothPairingDialog(QDialog):
                 self.connection_timer.start(5000)  # Check every 5 seconds
                 
                 # Emit signal for main application
-                self.device_connected.emit(device_info)
+                if device_info:
+                    self.device_connected.emit(device_info)
+                else:
+                    # Fallback device info
+                    fallback_info = {'name': 'Connected Device', 'address': device_address}
+                    self.device_connected.emit(fallback_info)
                 
             else:
-                self._log_status("❌ Connection failed")
+                attempts = self.bt_manager.get_connection_history(device_address)
+                self._log_status(f"❌ Connection failed after {attempts} attempts")
                 self.connect_button.setEnabled(True)
                 self.scan_button.setEnabled(True)
                 
@@ -456,13 +614,13 @@ class BluetoothPairingDialog(QDialog):
         else:
             self._log_status(f"❌ {message}")
     
-    def closeEvent(self, event):
+    def closeEvent(self, a0):
         """Handle dialog close event."""
         # Stop any ongoing operations
         if self.connection_timer.isActive():
             self.connection_timer.stop()
         
-        super().closeEvent(event)
+        super().closeEvent(a0)
     
     def get_connected_device_info(self) -> Optional[Dict[str, str]]:
         """Get information about the currently connected device."""
