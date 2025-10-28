@@ -437,7 +437,14 @@ class BluetoothRemoteController:
 
     async def pair(self) -> bool:
         """Send pairing button command to initiate Bluetooth pairing mode."""
-        return await self.send_key_command('PAIR')
+        _LOGGER.info("BluetoothRemoteController.pair() called")
+        try:
+            result = await self.send_key_command('PAIR')
+            _LOGGER.debug("pair() result: %s", result)
+            return result
+        except Exception as exc:
+            _LOGGER.exception("Exception in pair(): %s", exc)
+            return False
 
     def get_device_info(self) -> Optional[Dict[str, str]]:
         """Get information about the connected device."""

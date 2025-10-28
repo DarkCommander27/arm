@@ -386,8 +386,50 @@ class MainWindow(QWidget):
 
     def _on_pair(self) -> None:
         """Send pairing command to Android TV."""
-        if self.bluetooth_manager:
-            asyncio.create_task(self.bluetooth_manager.controller.pair())
+        _LOGGER.info("Pair button pressed by user")
+        _LOGGER.debug("Bluetooth available=%s, bluetooth_manager=%s", BLUETOOTH_AVAILABLE, repr(self.bluetooth_manager))
+        # If Bluetooth support isn't available, prompt the user
+        if not BLUETOOTH_AVAILABLE:
+            from PyQt5.QtWidgets import QMessageBox
+            QMessageBox.warning(
+                self,
+                'Bluetooth Not Available',
+                'Bluetooth functionality is not available.\n\n'
+                'To enable Bluetooth support, install the required package:\n'
+                'pip install bleak'
+            )
+            return
+
+        if not self.bluetooth_manager:
+            # Defensive check - should not happen when BLUETOOTH_AVAILABLE is True
+            from PyQt5.QtWidgets import QMessageBox
+            QMessageBox.critical(self, 'Error', 'Bluetooth manager is not initialized')
+            return
+        _LOGGER.debug("Bluetooth manager present, controller connected=%s", getattr(self.bluetooth_manager.controller, 'is_connected', False))
+        # If not currently connected, open the pairing dialog to let the user connect first.
+        # Sending a HID "PAIR" report requires an active Bluetooth connection.
+        if not getattr(self.bluetooth_manager.controller, 'is_connected', False):
+            _LOGGER.info("Not connected - opening pairing dialog for user to select device")
+            # Launch the same pairing dialog used elsewhere so the user can establish a connection
+            dialog = BluetoothPairingDialog(self)
+            dialog.device_connected.connect(self._on_bluetooth_device_connected)
+            dialog.exec_()
+            return
+
+        # If already connected, send the pairing HID report (this acts like pressing the TV's pairing button)
+        async def _do_pair():
+            try:
+                _LOGGER.info("Sending PAIR HID report via bluetooth_manager.controller.pair()")
+                success = await self.bluetooth_manager.controller.pair()
+                if success:
+                    self.search_label.setText('Pair signal sent')
+                else:
+                    self.search_label.setText('Pair signal failed')
+            except Exception as exc:
+                _LOGGER.exception('Error sending pair command: %s', exc)
+                self.search_label.setText('Pair error')
+
+        asyncio.create_task(_do_pair())
 
     def _on_bluetooth_pairing(self):
         """Open Bluetooth pairing dialog."""
